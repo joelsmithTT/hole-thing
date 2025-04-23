@@ -9,7 +9,7 @@
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/mman.h> // Include for mmap constants like PROT_NONE
+#include <sys/mman.h>
 #include <unistd.h>
 
 struct PciDeviceInfo
@@ -47,6 +47,11 @@ inline tenstorrent_mapping get_mapping(int fd, int id)
         tenstorrent_query_mappings query_mappings{};
         tenstorrent_mapping mapping_array[NUM_MAPPINGS];
     } mappings;
+
+    // HACK
+    if (fd < 0) {
+        SYSTEM_ERROR("Failed to open device");
+    }
 
     mappings.query_mappings.in.output_mapping_count = NUM_MAPPINGS;
 

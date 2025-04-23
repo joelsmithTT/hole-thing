@@ -148,7 +148,8 @@ struct tenstorrent_reset_device {
 
 // tenstorrent_pin_pages_in.flags
 #define TENSTORRENT_PIN_PAGES_CONTIGUOUS 1	// app attests that the pages are physically contiguous
-
+#define TENSTORRENT_PIN_PAGES_FHP 2
+#define TENSTORRENT_PIN_PAGES_CVT 4
 struct tenstorrent_pin_pages_in {
 	__u32 output_size_bytes;
 	__u32 flags;
@@ -157,7 +158,12 @@ struct tenstorrent_pin_pages_in {
 };
 
 struct tenstorrent_pin_pages_out {
-	__u64 physical_address;
+	__u64 physical_address;	// or IOVA
+};
+
+struct tenstorrent_pin_pages_out_extended {
+	__u64 physical_address;	// or IOVA
+	__u64 noc_address;
 };
 
 // unpinning subset of a pinned buffer is not supported
@@ -270,6 +276,21 @@ struct tenstorrent_configure_tlb_out {
 struct tenstorrent_configure_tlb {
 	struct tenstorrent_configure_tlb_in in;
 	struct tenstorrent_configure_tlb_out out;
+};
+
+#define TENSTORRENT_IOCTL_CONFIGURE_ATU		_IO(TENSTORRENT_IOCTL_MAGIC, 99)
+struct tenstorrent_configure_atu_in {
+	__u64 base;
+	__u64 limit;
+	__u64 target;
+	__u64 reserved[2];
+};
+
+struct tenstorrent_configure_atu_out {};
+
+struct tenstorrent_configure_atu {
+	struct tenstorrent_configure_atu_in in;
+	struct tenstorrent_configure_atu_out out;
 };
 
 #endif

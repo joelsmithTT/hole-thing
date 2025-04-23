@@ -1,6 +1,5 @@
 #include "iatu.hpp"
 
-
 int main()
 {
     Wormhole device("/dev/tenstorrent/0");

@@ -15,21 +15,16 @@
 
 class Device
 {
-public:
     int fd;
     MappedMemory bar2;
     PciDeviceInfo device_info;
 
+public:
     Device(const std::string& chardev_path, uint16_t expected_device_id = 0)
         : fd(open(chardev_path.c_str(), O_RDWR | O_CLOEXEC))
         , bar2(map_bar2(fd))
+        , device_info(get_device_info(fd))
     {
-        if (fd < 0) {
-            SYSTEM_ERROR("Failed to open device");
-        }
-
-        device_info = get_device_info(fd);
-
         if (expected_device_id != 0 && device_info.device_id != expected_device_id) {
             close(fd);
             RUNTIME_ERROR("Unexpected device ID: %04x, expected: %04x", device_info.device_id, expected_device_id);
@@ -164,10 +159,11 @@ public:
 class Wormhole : public Device
 {
     MappedMemory bar4;  // PCIe TLB registers, NOC2AXI, ARC CSM, Reset Unit.
+
 public:
     Wormhole(const std::string& chardev_path)
         : Device(chardev_path, WORMHOLE_ID)
-        , bar4(wh_map_bar4(fd))
+        , bar4(wh_map_bar4(Device::get_fd()))
     {
         LOG_INFO("Opened a Wormhole device: %s", chardev_path.c_str());
     }
@@ -186,7 +182,6 @@ public:
     {
         return bar4;
     }
-
 };
 
 class Blackhole : public Device

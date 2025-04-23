@@ -1,0 +1,2 @@
+add_executable(wormhole_tests wormhole_tests.cpp)
+add_executable(blackhole_tests blackhole_tests.cpp)

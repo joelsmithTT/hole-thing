@@ -5,9 +5,8 @@
 
 #include <unistd.h>
 
-void test_noc_dma(size_t num_buffers)
+void test_noc_dma(Device& device,size_t num_buffers)
 {
-    Device device("/dev/tenstorrent/0");
     int fd = device.get_fd();
     auto page_size = getpagesize();
     auto [x, y] = device.get_pcie_coordinates();
@@ -86,6 +85,9 @@ void test_noc_dma(size_t num_buffers)
 
 int main()
 {
-    test_noc_dma(16);
+    for (auto device_path : enumerate_devices()) {
+        Device device(device_path);
+        test_noc_dma(device, 16);
+    }
     return 0;
 }

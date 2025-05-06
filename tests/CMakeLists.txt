@@ -1,2 +1,3 @@
+add_executable(noc_dma_tests noc_dma_tests.cpp)
 add_executable(wormhole_tests wormhole_tests.cpp)
 add_executable(blackhole_tests blackhole_tests.cpp)

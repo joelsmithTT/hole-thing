@@ -126,7 +126,7 @@ public:
         if (!tlb_handle) {
             RUNTIME_ERROR("Invalid TLB handle");
         }
-        LOG_INFO("Created TlbWindow with base: %lx", base);
+        // LOG_INFO("Created TlbWindow with base: %lx", base);
     }
 
     uint32_t read32(uint64_t offset)
@@ -155,7 +155,7 @@ public:
             RUNTIME_ERROR("Size must be a multiple of 4");
         }
 
-        if (offset + size >= get_size()) {
+        if (offset + size > get_size()) {
             RUNTIME_ERROR("Memory access out of bounds");
         }
 
@@ -178,7 +178,7 @@ public:
             RUNTIME_ERROR("Size must be a multiple of 4");
         }
 
-        if (offset + size >= get_size()) {
+        if (offset + size > get_size()) {
             RUNTIME_ERROR("Memory access out of bounds");
         }
 

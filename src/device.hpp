@@ -41,7 +41,7 @@ public:
     {
         auto iommu_type = read_sysfs<std::string>(device_info, "iommu_group/type");
         if (iommu_type) {
-            return iommu_type->substr(0, 3) == "DMA";  // DMA or DMA-FQ
+            return iommu_type->substr(0, 3) == "DMA"; // DMA or DMA-FQ
         }
         return false;
     }
@@ -69,7 +69,7 @@ public:
     coord_t get_pcie_coordinates()
     {
         if (is_wormhole()) {
-            return { 0, 3 };
+            return {0, 3};
         } else if (is_blackhole()) {
             static constexpr uint64_t NOC_ID_OFFSET = 0x4044;
 
@@ -98,7 +98,7 @@ public:
             .y_end = y,
         };
 
-        LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
+        // LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
         auto handle = std::make_unique<TlbHandle>(fd, window_size, config, mode);
 
         return std::make_unique<TlbWindow>(std::move(handle), offset);
@@ -107,6 +107,39 @@ public:
     std::unique_ptr<TlbWindow> map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode)
     {
         return map_tlb(x, y, address, mode, 1 << 21);
+    }
+
+    void write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size)
+    {
+        constexpr size_t WINDOW_SIZE = 1 << 21; // 2MB window size
+        constexpr uint64_t window_mask = WINDOW_SIZE - 1;
+        uint64_t current_addr = address;
+        size_t remaining = size;
+        const uint8_t* data = static_cast<const uint8_t*>(src);
+
+        while (remaining > 0) {
+            // Calculate window base address and offset
+            uint64_t window_base = current_addr & ~window_mask;
+            uint64_t window_offset = current_addr & window_mask;
+
+            // Calculate how much we can write in this window
+            size_t write_size = std::min(remaining, WINDOW_SIZE - window_offset);
+
+            // Map TLB window for this range
+            auto window = map_tlb_2M(x, y, window_base, Uncached);
+
+            // Write data in 4-byte chunks
+            for (size_t i = 0; i < write_size; i += 4) {
+                if (i + 4 <= write_size) {
+                    window->write32(window_offset + i, *reinterpret_cast<const uint32_t*>(data + i));
+                }
+            }
+
+            // Update for next iteration
+            current_addr += write_size;
+            data += write_size;
+            remaining -= write_size;
+        }
     }
 
     void noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value)
@@ -173,7 +206,7 @@ public:
 // TODO: maybe get rid of this subclassery
 class Wormhole : public Device
 {
-    MappedMemory bar4;  // PCIe TLB registers, NOC2AXI, ARC CSM, Reset Unit.
+    MappedMemory bar4; // PCIe TLB registers, NOC2AXI, ARC CSM, Reset Unit.
 
 public:
     Wormhole(const std::string& chardev_path)

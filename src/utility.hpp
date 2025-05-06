@@ -4,7 +4,10 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <optional>
 #include <random>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -12,7 +15,43 @@
 
 
 void write_file(const std::string& filename, const void* data, size_t size);
-std::vector<uint8_t> read_file(const std::string& filename);
+std::vector<uint8_t> read_file_to_vec(const std::string& filename);
+
+inline std::string read_file_to_str(const std::string& filename)
+{
+    std::ifstream file(filename, std::ios::binary);
+    file.seekg(0, std::ios::end);
+
+    size_t size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::string buffer(size, 0x0);
+    file.read(buffer.data(), size);
+
+    return buffer;
+}
+
+
+template <typename T>
+std::optional<T> read_small_file(const std::string& path)
+{
+    try {
+        std::string data = read_file_to_str(path);
+        if (data.empty()) {
+            return std::nullopt;
+        }
+
+        std::stringstream ss(data);
+        T value;
+        if (!(ss >> value)) {
+            return std::nullopt;
+        }
+        return value;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 
 template <typename T>
 T* aligned_buffer(size_t num_elements)

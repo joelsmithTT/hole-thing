@@ -126,7 +126,7 @@ public:
             size_t write_size = std::min(remaining, WINDOW_SIZE - window_offset);
 
             // Map TLB window for this range
-            auto window = map_tlb_2M(x, y, window_base, Uncached);
+            auto window = map_tlb_2M(x, y, window_base, WriteCombined);
 
             // Write data in 4-byte chunks
             for (size_t i = 0; i < write_size; i += 4) {

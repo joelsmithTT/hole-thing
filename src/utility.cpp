@@ -2,7 +2,7 @@
 
 #include <fstream>
 
-std::vector<uint8_t> read_file(const std::string& filename)
+std::vector<uint8_t> read_file_to_vec(const std::string& filename)
 {
     std::ifstream file(filename, std::ios::binary);
     file.seekg(0, std::ios::end);

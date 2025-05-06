@@ -6,6 +6,10 @@
 #include "types.hpp"
 
 #include <cstdint>
+#include <fstream>
+#include <iomanip>
+#include <optional>
+#include <sstream>
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -21,6 +25,41 @@ struct PciDeviceInfo
     uint16_t pci_device;
     uint16_t pci_function;
 };
+
+template <typename T>
+static std::optional<T> read_sysfs(const PciDeviceInfo& device_info, const std::string& attribute_name) {
+    std::stringstream ss;
+    ss << "/sys/bus/pci/devices/"
+       << std::hex << std::setfill('0')
+       << std::setw(4) << device_info.pci_domain << ":"
+       << std::setw(2) << device_info.pci_bus << ":"
+       << std::setw(2) << device_info.pci_device << "."
+       << std::setw(1) << device_info.pci_function << "/"
+       << attribute_name;
+    const auto sysfs_path = ss.str();
+    std::ifstream attribute_file(sysfs_path);
+    std::string value_str;
+    T value;
+
+    if (!attribute_file.is_open() || !std::getline(attribute_file, value_str)) {
+        return std::nullopt;
+    }
+
+    std::istringstream iss(value_str);
+
+    // Handle hexadecimal input for integer types.
+    if constexpr (std::is_integral_v<T>) {
+        if (value_str.substr(0, 2) == "0x") {
+            iss >> std::hex;
+        }
+    }
+
+    if (!(iss >> value)) {
+        return std::nullopt;
+    }
+
+    return value;
+}
 
 inline PciDeviceInfo get_device_info(int fd)
 {

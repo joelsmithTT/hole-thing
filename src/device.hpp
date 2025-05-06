@@ -29,6 +29,21 @@ public:
             close(fd);
             RUNTIME_ERROR("Unexpected device ID: %04x, expected: %04x", device_info.device_id, expected_device_id);
         }
+
+        if (iommu_enabled()) {
+            LOG_INFO("IOMMU is enabled");
+        } else {
+            LOG_INFO("IOMMU is disabled");
+        }
+    }
+
+    bool iommu_enabled() const
+    {
+        auto iommu_type = read_sysfs<std::string>(device_info, "iommu_group/type");
+        if (iommu_type) {
+            return iommu_type->substr(0, 3) == "DMA";  // DMA or DMA-FQ
+        }
+        return false;
     }
 
     int get_fd() const
@@ -72,7 +87,7 @@ public:
         }
     }
 
-    std::unique_ptr<TlbWindow> map_tlb(uint32_t x, uint32_t y, uint64_t address, CacheMode mode, size_t window_size)
+    std::unique_ptr<TlbWindow> map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t window_size)
     {
         const uint64_t window_mask = window_size - 1;
         const uint64_t addr = address & ~window_mask;
@@ -89,18 +104,18 @@ public:
         return std::make_unique<TlbWindow>(std::move(handle), offset);
     }
 
-    std::unique_ptr<TlbWindow> map_tlb_2M(uint32_t x, uint32_t y, uint64_t address, CacheMode mode)
+    std::unique_ptr<TlbWindow> map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode)
     {
         return map_tlb(x, y, address, mode, 1 << 21);
     }
 
-    void noc_write32(uint32_t x, uint32_t y, uint64_t address, uint32_t value)
+    void noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value)
     {
         auto window = map_tlb_2M(x, y, address, Uncached);
         window->write32(0, value);
     }
 
-    uint32_t noc_read32(uint32_t x, uint32_t y, uint64_t address)
+    uint32_t noc_read32(uint16_t x, uint16_t y, uint64_t address)
     {
         auto window = map_tlb_2M(x, y, address, Uncached);
         return window->read32(0);

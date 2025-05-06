@@ -148,8 +148,9 @@ struct tenstorrent_reset_device {
 
 // tenstorrent_pin_pages_in.flags
 #define TENSTORRENT_PIN_PAGES_CONTIGUOUS 1	// app attests that the pages are physically contiguous
-#define TENSTORRENT_PIN_PAGES_NOC_DMA 2		// app wants to use the pages for NOC DMA
-#define TENSTORRENT_PIN_PAGES_ATU_TOP_DOWN 4 // NOC DMA will be allocated top-down (default is bottom-up)
+#define TENSTORRENT_PIN_PAGES_NOC_DMA 2	// app wants to use the pages for NOC DMA
+#define TENSTORRENT_PIN_PAGES_ATU_TOP_DOWN 4	// NOC DMA will be allocated top-down (default is bottom-up)
+
 struct tenstorrent_pin_pages_in {
 	__u32 output_size_bytes;
 	__u32 flags;
@@ -231,8 +232,10 @@ struct tenstorrent_allocate_tlb_in {
 
 struct tenstorrent_allocate_tlb_out {
 	__u32 id;
+	__u32 reserved0;
 	__u64 mmap_offset_uc;
 	__u64 mmap_offset_wc;
+	__u64 reserved1;
 };
 
 struct tenstorrent_allocate_tlb {
@@ -254,15 +257,17 @@ struct tenstorrent_free_tlb {
 
 struct tenstorrent_noc_tlb_config {
 	__u64 addr;
-	__u32 x_end;
-	__u32 y_end;
-	__u32 x_start;
-	__u32 y_start;
+	__u16 x_end;
+	__u16 y_end;
+	__u16 x_start;
+	__u16 y_start;
 	__u8 noc;
 	__u8 mcast;
 	__u8 ordering;
 	__u8 linked;
 	__u8 static_vc;
+	__u8 reserved0[3];
+	__u32 reserved1[2];
 };
 
 struct tenstorrent_configure_tlb_in {
@@ -271,6 +276,7 @@ struct tenstorrent_configure_tlb_in {
 };
 
 struct tenstorrent_configure_tlb_out {
+	__u64 reserved;
 };
 
 struct tenstorrent_configure_tlb {

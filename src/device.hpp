@@ -66,6 +66,15 @@ public:
         return bar2;
     }
 
+    MappedMemory get_bar4()
+    {
+        if (!is_wormhole()) {
+            LOG_FATAL("Don't do that");
+        }
+
+        return wh_map_bar4(fd);
+    }
+
     coord_t get_pcie_coordinates()
     {
         if (is_wormhole()) {
@@ -83,8 +92,20 @@ public:
 
             return {x, y};
         } else {
-            throw std::runtime_error("Unknown device type");
+            LOG_FATAL("Unknown device type");
         }
+        return {0, 0};
+    }
+
+    coord_t get_noc_grid_size() const
+    {
+        if (is_wormhole()) {
+            return {10, 12};
+        } else if (is_blackhole()) {
+            return {12, 17};
+        }
+        LOG_FATAL("Unknown device type");
+        return {0, 0};
     }
 
     std::unique_ptr<TlbWindow> map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t window_size)

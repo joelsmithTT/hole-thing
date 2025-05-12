@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -10,7 +11,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
 #include <unistd.h>
 
 
@@ -116,8 +116,7 @@ public:
     }
 };
 
-
-std::vector<std::string> enumerate_devices()
+inline std::vector<std::string> enumerate_devices()
 {
     std::vector<std::string> devices;
     const std::string base_path = "/dev/tenstorrent/";

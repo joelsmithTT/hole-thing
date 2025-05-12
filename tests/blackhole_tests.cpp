@@ -7,7 +7,9 @@ void blackhole_noc_sanity_check()
     static constexpr uint32_t BH_GRID_Y = 12;
     static constexpr uint64_t NOC_NODE_ID = 0xffb20044ULL;
 
-    Blackhole device("/dev/tenstorrent/0");
+    // TODO: Maybe put this behind some device enumeration logic?
+    // Stop hardcoding to /dev/tenstorrent/0
+    Device device("/dev/tenstorrent/0");
 
     auto is_tensix = [](uint32_t x, uint32_t y) -> bool {
         return (y >= 2 && y <= 11) &&   // Valid y range

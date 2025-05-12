@@ -130,6 +130,14 @@ public:
         return map_tlb(x, y, address, mode, 1 << 21);
     }
 
+    std::unique_ptr<TlbWindow> map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode)
+    {
+        if (!is_blackhole()) {
+            LOG_FATAL("No 4GB TLB windows on Wormhole");
+        }
+        return map_tlb(x, y, address, mode, 1ULL << 32);
+    }
+
     void write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size)
     {
         constexpr size_t WINDOW_SIZE = 1 << 21; // 2MB window size
@@ -224,46 +232,3 @@ public:
     }
 };
 
-// TODO: maybe get rid of this subclassery
-class Wormhole : public Device
-{
-    MappedMemory bar4; // PCIe TLB registers, NOC2AXI, ARC CSM, Reset Unit.
-
-public:
-    Wormhole(const std::string& chardev_path)
-        : Device(chardev_path, WORMHOLE_ID)
-        , bar4(wh_map_bar4(Device::get_fd()))
-    {
-        LOG_INFO("Opened a Wormhole device: %s", chardev_path.c_str());
-    }
-
-    std::unique_ptr<TlbWindow> map_tlb_1M(uint32_t x, uint32_t y, uint64_t address, CacheMode mode)
-    {
-        return map_tlb(x, y, address, mode, 1 << 20);
-    }
-
-    std::unique_ptr<TlbWindow> map_tlb_16M(uint32_t x, uint32_t y, uint64_t address, CacheMode mode)
-    {
-        return map_tlb(x, y, address, mode, 1 << 24);
-    }
-
-    MappedMemory& get_bar4()
-    {
-        return bar4;
-    }
-};
-
-class Blackhole : public Device
-{
-public:
-    Blackhole(const std::string& chardev_path)
-        : Device(chardev_path, BLACKHOLE_ID)
-    {
-        LOG_INFO("Opened a Blackhole device: %s", chardev_path.c_str());
-    }
-
-    std::unique_ptr<TlbWindow> map_tlb_4G(uint32_t x, uint32_t y, uint64_t address, CacheMode mode)
-    {
-        return map_tlb(x, y, address, mode, 1ULL << 32);
-    }
-};

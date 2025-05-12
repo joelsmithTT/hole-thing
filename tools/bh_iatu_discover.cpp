@@ -37,7 +37,7 @@ struct IatuRegisters
 
 int main()
 {
-    Blackhole device("/dev/tenstorrent/0");
+    Device device("/dev/tenstorrent/0");
     auto& bar2 = device.get_bar2();
     auto [x, y] = device.get_pcie_coordinates();
     auto dbi_tlb_window = device.map_tlb_2M(x, y, BH_IATU_REGS, CacheMode::Uncached);

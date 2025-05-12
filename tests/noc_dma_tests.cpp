@@ -6,6 +6,7 @@
 
 #include <unistd.h>
 #include <deque>
+
 int get_number_of_hugepages(Device& device)
 {
     std::string hugepage_path = "/sys/kernel/mm/hugepages/hugepages-1048576kB/free_hugepages";
@@ -283,7 +284,7 @@ void test_noc_dma_hp(Device& device)
 
 int main()
 {
-    for (auto device_path : enumerate_devices()) {
+    for (auto device_path : Device::enumerate_devices()) {
         Device device(device_path);
         if (device.iommu_enabled()) {
             test_noc_dma2(device, 16);

@@ -115,19 +115,3 @@ public:
         start_time = std::chrono::steady_clock::now();
     }
 };
-
-inline std::vector<std::string> enumerate_devices()
-{
-    std::vector<std::string> devices;
-    const std::string base_path = "/dev/tenstorrent/";
-    
-    for (const auto& entry : std::filesystem::directory_iterator(base_path)) {
-        if (std::filesystem::is_character_file(entry.path()) || 
-            std::filesystem::is_block_file(entry.path())) {
-            devices.push_back(entry.path().string());
-        }
-    }
-    
-    std::sort(devices.begin(), devices.end());
-    return devices;
-}

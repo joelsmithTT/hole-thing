@@ -4,14 +4,21 @@
 #include "logger.hpp"
 #include "pcie.hpp"
 #include "tlb.hpp"
-
+#include "utility.hpp"
+#include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <system_error>
+#include <vector>
 
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+
+const std::string KMD_VERSION_PATH = "/sys/module/tenstorrent/version";
+
+// TODO: Maybe start sticking stuff into device.cpp?
 
 class Device
 {
@@ -20,21 +27,34 @@ class Device
     PciDeviceInfo device_info;
 
 public:
-    Device(const std::string& chardev_path, uint16_t expected_device_id = 0)
+    static std::vector<std::string> enumerate_devices()
+    {
+        std::vector<std::string> devices;
+        const std::string base_path = "/dev/tenstorrent/";
+
+        for (const auto& entry : std::filesystem::directory_iterator(base_path)) {
+            if (std::filesystem::is_character_file(entry.path()) || std::filesystem::is_block_file(entry.path())) {
+                devices.push_back(entry.path().string());
+            }
+        }
+
+        std::sort(devices.begin(), devices.end());
+        return devices;
+    }
+
+    Device(const std::string& chardev_path)
         : fd(open(chardev_path.c_str(), O_RDWR | O_CLOEXEC))
         , bar2(map_bar2(fd))
         , device_info(ioctl_get_device_info(fd))
     {
-        if (expected_device_id != 0 && device_info.device_id != expected_device_id) {
-            close(fd);
-            RUNTIME_ERROR("Unexpected device ID: %04x, expected: %04x", device_info.device_id, expected_device_id);
-        }
+        const char* device = is_wormhole() ? "Wormhole" : is_blackhole() ? "Blackhole" : "UNKNOWN";
+        const char* iommu = iommu_enabled() ? "enabled" : "disabled";
+        const auto kmd_version = read_small_file<std::string>(KMD_VERSION_PATH);
+        const char* kmd = kmd_version.value().c_str();
+        uint32_t driver_version = ioctl_get_driver_version(fd);
 
-        if (iommu_enabled()) {
-            LOG_INFO("IOMMU is enabled");
-        } else {
-            LOG_INFO("IOMMU is disabled");
-        }
+        LOG_INFO("Opened %s at %04x:%02x:%02x.%x with IOMMU %s, KMD %s (v%u)", device, device_info.pci_domain,
+                 device_info.pci_bus, device_info.pci_device, device_info.pci_function, iommu, kmd, driver_version);
     }
 
     bool iommu_enabled() const
@@ -88,8 +108,7 @@ public:
             static constexpr uint64_t NOC_ID_OFFSET = 0x4044;
 
             auto noc2axi = bh_map_noc2axi(fd);
-            auto span = noc2axi.as_span<volatile uint32_t>();
-            auto noc_id = span[NOC_ID_OFFSET / sizeof(uint32_t)];
+            auto noc_id = noc2axi.read32(NOC_ID_OFFSET);
             auto x = (noc_id >> 0x0) & 0x3f;
             auto y = (noc_id >> 0x6) & 0x3f;
 
@@ -236,4 +255,3 @@ public:
         LOG_DEBUG("Closed device");
     }
 };
-

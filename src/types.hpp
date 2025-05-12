@@ -35,6 +35,19 @@ public:
     MappedMemory(MappedMemory&&) = default;
     MappedMemory& operator=(MappedMemory&&) = default;
 
+    uint32_t read32(uint64_t offset)
+    {
+        if (offset & (sizeof(uint32_t) - 1)) {
+            RUNTIME_ERROR("Memory access must be aligned");
+        }
+
+        if (offset + sizeof(uint32_t) > mem_size) {
+            RUNTIME_ERROR("Memory access out of bounds");
+        }
+
+        return *reinterpret_cast<volatile uint32_t*>(mem + offset);
+    }
+
     void write32(uint64_t offset, uint32_t value)
     {
         if (offset & (sizeof(value) - 1)) {

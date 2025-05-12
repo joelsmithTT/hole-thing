@@ -61,7 +61,7 @@ static std::optional<T> read_sysfs(const PciDeviceInfo& device_info, const std::
     return value;
 }
 
-inline PciDeviceInfo get_device_info(int fd)
+inline PciDeviceInfo ioctl_get_device_info(int fd)
 {
     tenstorrent_get_device_info info{};
 
@@ -112,7 +112,7 @@ inline MappedMemory bh_map_noc2axi(int fd)
     static constexpr uint64_t NOC2AXI_BASE = 0x1FD00000; // BAR0
     static constexpr uint64_t NOC2AXI_SIZE = 0x00100000; // bytes
 
-    if (get_device_info(fd).device_id != BLACKHOLE_ID) {
+    if (ioctl_get_device_info(fd).device_id != BLACKHOLE_ID) {
         RUNTIME_ERROR("Not a Blackhole");
     }
 

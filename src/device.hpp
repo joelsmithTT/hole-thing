@@ -23,7 +23,7 @@ public:
     Device(const std::string& chardev_path, uint16_t expected_device_id = 0)
         : fd(open(chardev_path.c_str(), O_RDWR | O_CLOEXEC))
         , bar2(map_bar2(fd))
-        , device_info(get_device_info(fd))
+        , device_info(ioctl_get_device_info(fd))
     {
         if (expected_device_id != 0 && device_info.device_id != expected_device_id) {
             close(fd);
@@ -59,6 +59,11 @@ public:
     bool is_blackhole() const
     {
         return device_info.device_id == BLACKHOLE_ID;
+    }
+
+    PciDeviceInfo get_device_info() const
+    {
+        return device_info;
     }
 
     MappedMemory& get_bar2()

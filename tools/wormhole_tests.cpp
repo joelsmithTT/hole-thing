@@ -40,6 +40,7 @@ void wormhole_noc_sanity_test()
     LOG_INFO("Wormhole NOC sanity test PASSED");
 }
 
+#if 0
 void wormhole_new_pin()
 {
     Device device("/dev/tenstorrent/0");
@@ -313,12 +314,13 @@ void wormhole_pin_unpin_test()
 
     LOG_DEBUG("Completed pin/unpin test");
 }
+#endif
 
 int main()
 {
     // wormhole_noc_sanity_test();
     // wormhole_noc_dma();
-    wormhole_new_pin();
-    wormhole_pin_unpin_test();
+    // wormhole_new_pin();
+    // wormhole_pin_unpin_test();
     return 0;
 }

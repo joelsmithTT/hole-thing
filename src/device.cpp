@@ -210,8 +210,8 @@ int Device::get_fd() const
 {
     return fd;
 }
-bool Device::is_wormhole() const
 
+bool Device::is_wormhole() const
 {
     return device_info.device_id == WORMHOLE_ID;
 }
@@ -260,6 +260,7 @@ coord_t Device::get_pcie_coordinates()
     }
     return {0, 0};
 }
+
 coord_t Device::get_noc_grid_size() const
 {
     if (is_wormhole()) {
@@ -270,44 +271,38 @@ coord_t Device::get_noc_grid_size() const
     LOG_FATAL("Unknown device type");
     return {0, 0};
 }
-std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t window_size,
-                                           int noc)
-{
-    // TODO: Harvesting?
-    if (noc == 1) {
-        auto grid_size = get_noc_grid_size();
-        x = grid_size.x - 1 - x;
-        y = grid_size.y - 1 - y;
-    }
 
-    const uint64_t window_mask = window_size - 1;
+std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc)
+{
+    const uint64_t window_mask = size - 1;
     const uint64_t addr = address & ~window_mask;
     const uint64_t offset = address & window_mask;
     const tenstorrent_noc_tlb_config config{
         .addr = addr,
         .x_end = x,
         .y_end = y,
-        .noc = static_cast<uint8_t>(noc),
-        .ordering = 2,
     };
 
     // LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
-    auto handle = std::make_unique<TlbHandle>(fd, window_size, config, mode);
+    auto handle = std::make_unique<TlbHandle>(fd, size, config, mode);
 
     return std::make_unique<TlbWindow>(std::move(handle), offset);
 }
+
 std::unique_ptr<TlbWindow> Device::map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc)
 {
     return map_tlb(x, y, address, mode, 1 << 21, noc);
 }
-std::unique_ptr<TlbWindow> Device::map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode)
+
+std::unique_ptr<TlbWindow> Device::map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc)
 {
     if (!is_blackhole()) {
         LOG_FATAL("No 4GB TLB windows on Wormhole");
     }
-    return map_tlb(x, y, address, mode, 1ULL << 32);
+    return map_tlb(x, y, address, mode, 1ULL << 32, noc);
 }
-void Device::write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size)
+
+void Device::write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size, int noc)
 {
     constexpr size_t window_size = 1 << 21; // 2MB window size
     constexpr uint64_t window_mask = window_size - 1;
@@ -324,7 +319,7 @@ void Device::write_block(uint16_t x, uint16_t y, uint64_t address, const void* s
         size_t write_size = std::min(remaining, window_size - window_offset);
 
         // Map TLB window for this range
-        auto window = map_tlb_2M(x, y, window_base, WriteCombined, 1);
+        auto window = map_tlb_2M(x, y, window_base, WriteCombined, noc);
 
         // Write data in 4-byte chunks
         for (size_t i = 0; i < write_size; i += 4) {
@@ -339,16 +334,19 @@ void Device::write_block(uint16_t x, uint16_t y, uint64_t address, const void* s
         remaining -= write_size;
     }
 }
-void Device::noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value)
+
+void Device::noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value, int noc)
 {
-    auto window = map_tlb_2M(x, y, address, Uncached);
+    auto window = map_tlb_2M(x, y, address, Uncached, noc);
     window->write32(0, value);
 }
-uint32_t Device::noc_read32(uint16_t x, uint16_t y, uint64_t address)
+
+uint32_t Device::noc_read32(uint16_t x, uint16_t y, uint64_t address, int noc)
 {
-    auto window = map_tlb_2M(x, y, address, Uncached);
+    auto window = map_tlb_2M(x, y, address, Uncached, noc);
     return window->read32(0);
 }
+
 uint64_t Device::map_for_dma(void* buffer, size_t size)
 {
     tenstorrent_pin_pages pin{};
@@ -366,6 +364,7 @@ uint64_t Device::map_for_dma(void* buffer, size_t size)
 
     return iova;
 }
+
 void Device::unmap_for_dma(void* buffer, size_t size)
 {
     tenstorrent_unpin_pages unpin{};
@@ -376,6 +375,7 @@ void Device::unmap_for_dma(void* buffer, size_t size)
         throw std::system_error(errno, std::generic_category(), "Failed to unpin pages");
     }
 }
+
 void Device::enable_dbi(bool enable)
 {
     if (is_wormhole()) {
@@ -388,6 +388,7 @@ void Device::enable_dbi(bool enable)
         LOG_ERROR("Don't do that");
     }
 }
+
 Device::~Device() noexcept
 {
     close(fd);

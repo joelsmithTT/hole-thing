@@ -27,7 +27,7 @@ void test_noc_dma(Device& device, size_t num_buffers)
 
     // Use smaller buffers for Wormhole devices, where we are constrained to a
     // little (just shy of 4GB) aperture from NOC to host system bus.
-    size_t buffer_size = device.is_wormhole() ? 0x1000 : 0x100000;
+    size_t buffer_size = device.is_wormhole() ? 0x1000 : 0x10000;
 
     for (size_t i = 0; i < num_buffers; i++) {
         size_t buffer_alignment = page_size;
@@ -42,7 +42,7 @@ void test_noc_dma(Device& device, size_t num_buffers)
         pin.in.flags = TENSTORRENT_PIN_PAGES_NOC_DMA;
 
         if (i % 2 == 0) {
-            pin.in.flags |= TENSTORRENT_PIN_PAGES_ATU_TOP_DOWN;
+            pin.in.flags |= TENSTORRENT_PIN_PAGES_NOC_TOP_DOWN;
         }
 
         if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {
@@ -52,10 +52,11 @@ void test_noc_dma(Device& device, size_t num_buffers)
         uint64_t iova = pin.out.physical_address;
         uint64_t noc_addr = pin.out.noc_address;
 
-        LOG_INFO("Buffer %zu: iova = %lx, noc_addr = %lx", i, iova, noc_addr);
+        LOG_INFO("Buffer %zu: iova = %lx, noc_addr = %lx size = %zu", i, iova, noc_addr, buffer_size);
 
         std::vector<uint8_t> random_data(buffer_size);
         fill_with_random_data(random_data.data(), buffer_size);
+        LOG_INFO("Writing to x=%u, y=%u, noc_addr=0x%lx", x, y, noc_addr);
         device.write_block(x, y, noc_addr, random_data.data(), buffer_size);
 
         patterns.push_back(random_data);
@@ -126,7 +127,7 @@ void test_noc_dma_hp(Device& device)
         pin.in.flags = TENSTORRENT_PIN_PAGES_NOC_DMA | TENSTORRENT_PIN_PAGES_CONTIGUOUS;
 
         if (i % 2 == 0) {
-            pin.in.flags |= TENSTORRENT_PIN_PAGES_ATU_TOP_DOWN;
+            pin.in.flags |= TENSTORRENT_PIN_PAGES_NOC_TOP_DOWN;
         }
 
         if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {

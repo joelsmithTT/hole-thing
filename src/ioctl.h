@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
-// SPDX-License-Identifier: GPL-2.0-only
+// SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note
 
 #ifndef TTDRIVER_IOCTL_H_INCLUDED
 #define TTDRIVER_IOCTL_H_INCLUDED
@@ -148,8 +148,8 @@ struct tenstorrent_reset_device {
 
 // tenstorrent_pin_pages_in.flags
 #define TENSTORRENT_PIN_PAGES_CONTIGUOUS 1	// app attests that the pages are physically contiguous
-#define TENSTORRENT_PIN_PAGES_NOC_DMA 2	// app wants to use the pages for NOC DMA
-#define TENSTORRENT_PIN_PAGES_ATU_TOP_DOWN 4	// NOC DMA will be allocated top-down (default is bottom-up)
+#define TENSTORRENT_PIN_PAGES_NOC_DMA 2		// app wants to use the pages for NOC DMA
+#define TENSTORRENT_PIN_PAGES_NOC_TOP_DOWN 4	// NOC DMA will be allocated top-down (default is bottom-up)
 
 struct tenstorrent_pin_pages_in {
 	__u32 output_size_bytes;

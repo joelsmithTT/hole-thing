@@ -38,38 +38,28 @@ public:
     Device(const std::string& chardev_path);
 
     bool iommu_enabled() const;
-
     int get_fd() const;
 
     bool is_wormhole() const;
-
     bool is_blackhole() const;
 
     PciDeviceInfo get_device_info() const;
-
     MappedMemory& get_bar2();
-
     MappedMemory get_bar4();
 
     coord_t get_pcie_coordinates();
-
     coord_t get_noc_grid_size() const;
 
-    std::unique_ptr<TlbWindow> map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t window_size,
-                                       int noc = 0);
-
+    std::unique_ptr<TlbWindow> map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc);
     std::unique_ptr<TlbWindow> map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc = 0);
+    std::unique_ptr<TlbWindow> map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc = 0);
 
-    std::unique_ptr<TlbWindow> map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode);
+    void write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size, int noc = 0);
 
-    void write_block(uint16_t x, uint16_t y, uint64_t address, const void* src, size_t size);
-
-    void noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value);
-
-    uint32_t noc_read32(uint16_t x, uint16_t y, uint64_t address);
+    void noc_write32(uint16_t x, uint16_t y, uint64_t address, uint32_t value, int noc = 0);
+    uint32_t noc_read32(uint16_t x, uint16_t y, uint64_t address, int noc = 0);
 
     uint64_t map_for_dma(void* buffer, size_t size);
-
     void unmap_for_dma(void* buffer, size_t size);
 
     void enable_dbi(bool enable);

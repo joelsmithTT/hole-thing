@@ -30,8 +30,8 @@ int main()
     Device device("/dev/tenstorrent/0");
 
     auto [pcie_x, pcie_y] = device.get_pcie_coordinates();
-    auto window0 = device.map_tlb_2M(pcie_x, pcie_y, PCIE_NOC_REG_BASE, CacheMode::Uncached, 0);
-    auto window1 = device.map_tlb_2M(pcie_x, pcie_y, PCIE_NOC_REG_BASE, CacheMode::Uncached, 1);
+    auto window0 = device.map_tlb_2M(pcie_x, pcie_y, PCIE_NOC_REG_BASE, CacheMode::Uncached);
+    auto window1 = device.map_tlb_2M(pcie_x, pcie_y, PCIE_NOC_REG_BASE, CacheMode::Uncached);
 
     for (;;) {
         for (const auto& [reg, name] : NIU_REG_NAMES) {

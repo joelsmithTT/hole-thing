@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
+// SPDX-License-Identifier: GPL-2.0-only
+
 #include "device.hpp"
 #include "ioctl.h"
 #include "logger.hpp"
@@ -108,7 +111,7 @@ void test_noc_dma_hp(Device& device)
     size_t buffer_size = 1 << 30;
     int32_t n = get_number_of_hugepages_free();
 
-    n = std::min(n, 4);
+    n = device.is_wormhole() ? std::min(n, 4) : n;
 
     for (int32_t i = 0; i < n; i++) {
         void* buffer = mmap(nullptr, buffer_size, PROT_READ | PROT_WRITE,

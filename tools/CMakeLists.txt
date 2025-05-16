@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
+# SPDX-License-Identifier: GPL-2.0-only
+
 add_executable(blackhole_tests blackhole_tests.cpp)
 add_executable(iatu_discover iatu_discover.cpp)
 add_executable(noc_dma_tests noc_dma_tests.cpp)

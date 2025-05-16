@@ -1,5 +1,4 @@
 #include "device.hpp"
-#include "iatu.hpp"
 #include "logger.hpp"
 #include "types.hpp"
 
@@ -70,20 +69,6 @@ void wormhole_new_pin()
     pin1.in.flags = TENSTORRENT_PIN_PAGES_NOC_DMA;
 
     if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin1) != 0) {
-        throw std::system_error(errno, std::generic_category(), "Failed to pin pages");
-    }
-
-    struct
-    {
-        tenstorrent_pin_pages_in in;
-        tenstorrent_pin_pages_out_extended out;
-    } pin_break{};
-    pin_break.in.output_size_bytes = sizeof(pin_break.out);
-    pin_break.in.virtual_address = reinterpret_cast<uint64_t>(buffer);
-    pin_break.in.size = buffer_size;
-    pin_break.in.flags = TENSTORRENT_PIN_PAGES_NOC_DMA;
-    if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin_break) != 0) {
-        LOG_INFO("HOW?");
         throw std::system_error(errno, std::generic_category(), "Failed to pin pages");
     }
 

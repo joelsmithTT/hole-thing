@@ -8,7 +8,6 @@
 #include <mutex>
 #include <source_location>
 #include <string_view>
-#include <system_error>
 #include <utility>
 
 namespace logger {

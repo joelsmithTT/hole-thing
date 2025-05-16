@@ -1,42 +1,28 @@
 #pragma once
 
-#include <algorithm>
+#include "logger.hpp"
+
 #include <chrono>
 #include <cstdint>
-#include <cstring>
-#include <filesystem>
-#include <fstream>
 #include <optional>
-#include <random>
 #include <sstream>
 #include <string>
-#include <vector>
+
 #include <unistd.h>
+#include <sys/mman.h>
 
 
 void write_file(const std::string& filename, const void* data, size_t size);
-std::vector<uint8_t> read_file_to_vec(const std::string& filename);
-
-inline std::string read_file_to_str(const std::string& filename)
-{
-    std::ifstream file(filename, std::ios::binary);
-    file.seekg(0, std::ios::end);
-
-    size_t size = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    std::string buffer(size, 0x0);
-    file.read(buffer.data(), size);
-
-    return buffer;
-}
-
+std::string read_file(const std::string& filename);
+void fill_with_random_data(void* ptr, size_t bytes);
+int32_t get_number_of_hugepages_free();
+int32_t get_number_of_hugepages_total();
 
 template <typename T>
 std::optional<T> read_small_file(const std::string& path)
 {
     try {
-        std::string data = read_file_to_str(path);
+        std::string data = read_file(path);
         if (data.empty()) {
             return std::nullopt;
         }
@@ -52,33 +38,7 @@ std::optional<T> read_small_file(const std::string& path)
     }
 }
 
-
-template <typename T>
-T* aligned_buffer(size_t num_elements)
-{
-    const size_t page_size = sysconf(_SC_PAGESIZE);
-    T* ptr = static_cast<T*>(std::aligned_alloc(page_size, num_elements * sizeof(T)));
-    if (!ptr) {
-        throw std::bad_alloc();
-    }
-    return ptr;
-}
-
-template <typename T> T random_integer()
-{
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<T> dis(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
-    return dis(gen);
-}
-
-template <typename T> std::vector<T> random_vec(size_t num_elements)
-{
-    std::vector<T> vec(num_elements);
-    std::generate(vec.begin(), vec.end(), random_integer<T>);
-    return vec;
-}
-
+// Simple timer for basic benchmarking.
 class Timer
 {
     std::chrono::time_point<std::chrono::steady_clock> start_time;
@@ -115,3 +75,107 @@ public:
         start_time = std::chrono::steady_clock::now();
     }
 };
+
+// Owning wrapper for a memory region.
+class MappedMemory
+{
+    uint8_t* mem;
+    size_t mem_size;
+
+public:
+    MappedMemory(uint8_t* mem, size_t size)
+        : mem(mem)
+        , mem_size(size)
+    {
+    }
+
+    MappedMemory(const MappedMemory&) = delete;
+    MappedMemory& operator=(const MappedMemory&) = delete;
+    MappedMemory(MappedMemory&&) = default;
+    MappedMemory& operator=(MappedMemory&&) = default;
+
+    uint32_t read32(uint64_t offset)
+    {
+        if (offset & (sizeof(uint32_t) - 1)) {
+            RUNTIME_ERROR("Memory access must be aligned");
+        }
+
+        if (offset + sizeof(uint32_t) > mem_size) {
+            RUNTIME_ERROR("Memory access out of bounds");
+        }
+
+        return *reinterpret_cast<volatile uint32_t*>(mem + offset);
+    }
+
+    void write32(uint64_t offset, uint32_t value)
+    {
+        if (offset & (sizeof(value) - 1)) {
+            RUNTIME_ERROR("Memory access must be aligned");
+        }
+
+        if (offset + sizeof(value) > mem_size) {
+            RUNTIME_ERROR("Memory access out of bounds");
+        }
+        *reinterpret_cast<volatile uint32_t*>(mem + offset) = value;
+    }
+
+    size_t get_size() const
+    {
+        return mem_size;
+    }
+
+    template <typename T> T* as_ptr(uint64_t offset = 0)
+    {
+        return reinterpret_cast<T*>(mem + offset);
+    }
+
+    ~MappedMemory()
+    {
+        if (mem) {
+            munmap(mem, mem_size);
+        }
+    }
+};
+
+namespace detail {
+
+template <typename Func>
+class ScopeGuard
+{
+public:
+    template <typename F>
+    explicit ScopeGuard(F&& f)
+        : func(std::forward<F>(f))
+    {
+    }
+
+    ~ScopeGuard() noexcept
+    {
+        try {
+            func();
+        } catch (...) {
+            LOG_ERROR("Probably should have used Rust LOL");
+        }
+    }
+
+    ScopeGuard(const ScopeGuard&) = delete;
+    ScopeGuard& operator=(const ScopeGuard&) = delete;
+    ScopeGuard(ScopeGuard&&) = delete;
+    ScopeGuard& operator=(ScopeGuard&&) = delete;
+
+private:
+    Func func;
+};
+
+enum class ScopeGuardOnExit {};
+template <typename Func>
+ScopeGuard<Func> operator+(ScopeGuardOnExit, Func&& f)
+{
+    return ScopeGuard<Func>(std::forward<Func>(f));
+}
+} // namespace detail
+
+#define DEFER_CONCAT_IMPL(s1, s2) s1##s2
+#define DEFER_CONCAT(s1, s2) DEFER_CONCAT_IMPL(s1, s2)
+#define DEFER_ANON_VARIABLE(str) DEFER_CONCAT(str, __COUNTER__)
+#define DEFER auto DEFER_ANON_VARIABLE(SCOPE_EXIT_STATE) = detail::ScopeGuardOnExit() + [&]() noexcept

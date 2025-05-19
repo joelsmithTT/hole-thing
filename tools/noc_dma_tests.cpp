@@ -7,6 +7,7 @@
 #include "utility.hpp"
 #include <linux/mman.h>
 
+#include <iostream>
 #include <unistd.h>
 
 void test_noc_dma(Device& device, size_t num_buffers)
@@ -90,6 +91,46 @@ void test_noc_dma(Device& device, size_t num_buffers)
         if (ioctl(fd, TENSTORRENT_IOCTL_UNPIN_PAGES, &unpin) != 0) {
             LOG_FATAL("Failed to unpin pages");
         }
+    }
+}
+
+void test_noc_dma_with_dmabufs(const std::string& device_path, size_t num_buffers)
+{
+    Device device(device_path);
+    int fd = device.get_fd();
+    auto [x, y] = device.get_pcie_coordinates();
+
+    for (size_t i = 0; i < num_buffers; i++) {
+        tenstorrent_allocate_dma_buf dmabuf{};
+        dmabuf.in.requested_size = 4 << 21;
+        dmabuf.in.flags = TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA;
+        dmabuf.in.buf_index = (uint8_t)i;
+        if (ioctl(fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) < 0) {
+            SYSTEM_ERROR("Failed to allocate dmabuf");
+        }
+        
+        void *mapping = mmap(nullptr, dmabuf.out.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, dmabuf.out.mapping_offset);
+        if (mapping == MAP_FAILED) {
+            SYSTEM_ERROR("Failed to mmap dmabuf");
+        }
+
+        uint64_t noc_addr = dmabuf.out.noc_address;
+        uint64_t iova = dmabuf.out.physical_address;
+
+        LOG_INFO("DMA buffer: noc_addr = %lx, iova = %lx, size = %zu", noc_addr, iova, dmabuf.out.size);
+
+        // Write a pattern to the buffer using the device.
+        std::vector<uint8_t> random_data(dmabuf.out.size);
+        fill_with_random_data(random_data.data(), dmabuf.out.size);
+        device.write_block(x, y, noc_addr, random_data.data(), dmabuf.out.size);
+
+        for (size_t i = 0; i < dmabuf.out.size; i++) {
+            if (random_data[i] != static_cast<uint8_t*>(mapping)[i]) {
+                LOG_FATAL("Buffer mismatch at offset %zu", i);
+            }
+        }
+
+        munmap(mapping, dmabuf.out.size);
     }
 }
 
@@ -178,6 +219,7 @@ int main()
         Device device(device_path);
         if (device.iommu_enabled()) {
             test_noc_dma(device, 16);
+            // test_noc_dma_with_dmabufs(device_path, 16);
         } else {
             test_noc_dma_hp(device);
         }

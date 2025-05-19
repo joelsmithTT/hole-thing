@@ -274,6 +274,19 @@ coord_t Device::get_noc_grid_size() const
 
 std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc)
 {
+    // HACK
+    uint8_t ordering = 0;
+    if (noc == 2) {
+        noc = 1;
+        ordering = 2;
+    }
+
+    if (is_wormhole() && noc == 1) {
+        auto [size_x, size_y] = get_noc_grid_size();
+        x = size_x - 1 - x;
+        y = size_y - 1 - y;
+    }
+
     const uint64_t window_mask = size - 1;
     const uint64_t addr = address & ~window_mask;
     const uint64_t offset = address & window_mask;
@@ -281,9 +294,11 @@ std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t addr
         .addr = addr,
         .x_end = x,
         .y_end = y,
+        .noc = static_cast<uint8_t>(noc),
+        .ordering = ordering,
     };
 
-    // LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
+    LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
     auto handle = std::make_unique<TlbHandle>(fd, size, config, mode);
 
     return std::make_unique<TlbWindow>(std::move(handle), offset);

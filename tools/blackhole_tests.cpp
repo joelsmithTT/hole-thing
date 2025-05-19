@@ -5,15 +5,15 @@
 #include <array>
 #include <algorithm>
 
-void blackhole_noc_sanity_check()
+void blackhole_noc_sanity_check(Device& device)
 {
     static constexpr uint32_t BH_GRID_X = 17;
     static constexpr uint32_t BH_GRID_Y = 12;
     static constexpr uint64_t NOC_NODE_ID = 0xffb20044ULL;
+    static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
 
-    // TODO: Maybe put this behind some device enumeration logic?
-    // Stop hardcoding to /dev/tenstorrent/0
-    Device device("/dev/tenstorrent/0");
+    bool translated = device.is_translated();
+    uint64_t address = translated ? NOC_NODE_ID_LOGICAL : NOC_NODE_ID;
 
     auto is_tensix = [](uint32_t x, uint32_t y) -> bool {
         return (y >= 2 && y <= 11) &&   // Valid y range
@@ -27,17 +27,18 @@ void blackhole_noc_sanity_check()
             if (!is_tensix(x, y))
                 continue;
 
-            uint32_t node_id = device.noc_read32(x, y, NOC_NODE_ID);
+            uint32_t node_id = device.noc_read32(x, y, address);
             uint32_t node_id_x = (node_id >> 0x0) & 0x3f;
             uint32_t node_id_y = (node_id >> 0x6) & 0x3f;
 
             if (node_id_x != x || node_id_y != y) {
-                LOG_ERROR("Node ID mismatch at (%d, %d): expected (%d, %d), got (%d, %d)\n",
-                       x, y, x, y, node_id_x, node_id_y);
+                LOG_ERROR("Node ID mismatch at (%u, %u): expected (%u, %u), got (%u, %u) (translated=%d)",
+                       x, y, x, y, node_id_x, node_id_y, translated);
                 RUNTIME_ERROR("Something is screwed up");
             }
         }
     }
+    LOG_INFO("NOC sanity check passed");
 }
 
 
@@ -119,8 +120,6 @@ struct Blackhole {
     }
 };
 
-#include <iostream>
-
 void blackhole_gen_coordinates()
 {
     std::vector<std::vector<int>> my_grid(Blackhole::NOC_SIZE_Y, std::vector<int>(Blackhole::NOC_SIZE_X));
@@ -151,8 +150,13 @@ void blackhole_gen_coordinates()
 
 int main()
 {
-    // blackhole_noc_sanity_check();
-    // blackhole_coordinates();
-    blackhole_gen_coordinates();
+    for (auto device_path : Device::enumerate_devices()) {
+        Device device(device_path);
+        if (!device.is_blackhole()) {
+            continue;
+        }
+
+        blackhole_noc_sanity_check(device);
+    }
     return 0;
 }

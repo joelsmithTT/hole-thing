@@ -188,13 +188,15 @@ Device::Device(const std::string& chardev_path)
 {
     static const std::string KMD_VERSION_PATH = "/sys/module/tenstorrent/version";
     const char* device = is_wormhole() ? "Wormhole" : is_blackhole() ? "Blackhole" : "UNKNOWN";
-    const char* iommu = iommu_enabled() ? "enabled" : "disabled";
     const auto kmd_version = read_small_file<std::string>(KMD_VERSION_PATH);
     const char* kmd = kmd_version.value().c_str();
     uint32_t driver_version = ioctl_get_driver_version(fd);
 
-    LOG_INFO("Opened %s at %04x:%02x:%02x.%x with IOMMU %s, KMD %s (v%u)", device, device_info.pci_domain,
-             device_info.pci_bus, device_info.pci_device, device_info.pci_function, iommu, kmd, driver_version);
+    LOG_INFO("Opened %s at %04x:%02x:%02x.%x", device, device_info.pci_domain,
+             device_info.pci_bus, device_info.pci_device, device_info.pci_function);
+    LOG_INFO("KMD: %s", kmd);
+    LOG_INFO("IOMMU: %s", iommu_enabled() ? "enabled" : "disabled");
+    LOG_INFO("Translated: %s", is_translated() ? "yes" : "no");
 }
 
 bool Device::iommu_enabled() const
@@ -221,6 +223,21 @@ bool Device::is_blackhole() const
     return device_info.device_id == BLACKHOLE_ID;
 }
 
+bool Device::is_translated() const
+{
+    bool enabled = false;
+    if (is_wormhole()) {
+        LOG_FATAL("TODO: Implement Device::is_translated for Wormhole.");
+    } else if (is_blackhole()) {
+        static constexpr uint64_t NIU_CFG = 0x4100; // in NOC2AXI segment, in BAR0
+        auto noc2axi = bh_map_noc2axi(fd);
+        auto cfg = noc2axi.read32(NIU_CFG);
+        enabled = (cfg >> 14) & 0x1;
+    }
+
+    return enabled;
+}
+
 PciDeviceInfo Device::get_device_info() const
 {
     return device_info;
@@ -245,6 +262,8 @@ coord_t Device::get_pcie_coordinates()
     if (is_wormhole()) {
         return {0, 3};
     } else if (is_blackhole()) {
+        // TODO: translation treatment?  Should maybe read the NOC_ID_LOGICAL register?
+        // NOC0 is OK, but NOC1 is not.  Device::get_pcie_coordinates(int noc) ??
         static constexpr uint64_t NOC_ID_OFFSET = 0x4044;
 
         auto noc2axi = bh_map_noc2axi(fd);
@@ -272,20 +291,28 @@ coord_t Device::get_noc_grid_size() const
     return {0, 0};
 }
 
+
 std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc)
 {
     // HACK
+    // TODO: if you want to do this, I think you need to pass out an unconfigured window.
+    // Leave it up to the caller to futz around with ordering.
+    // Maybe the window can be partially configured?  Have a set_ordering() method that rewrites the config?
+    // I don't know.  But this isn't the way to do it:
     uint8_t ordering = 0;
     if (noc == 2) {
         noc = 1;
         ordering = 2;
     }
 
+    // TODO: clean this shit up before you trip over it again.
+#if HACK
     if (is_wormhole() && noc == 1) {
         auto [size_x, size_y] = get_noc_grid_size();
         x = size_x - 1 - x;
         y = size_y - 1 - y;
     }
+#endif
 
     const uint64_t window_mask = size - 1;
     const uint64_t addr = address & ~window_mask;
@@ -298,7 +325,7 @@ std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t addr
         .ordering = ordering,
     };
 
-    LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
+    // LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
     auto handle = std::make_unique<TlbHandle>(fd, size, config, mode);
 
     return std::make_unique<TlbWindow>(std::move(handle), offset);

@@ -42,6 +42,7 @@ public:
 
     bool is_wormhole() const;
     bool is_blackhole() const;
+    bool is_translated() const;
 
     PciDeviceInfo get_device_info() const;
     MappedMemory& get_bar2();

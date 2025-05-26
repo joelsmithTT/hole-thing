@@ -33,7 +33,7 @@ struct tt_tlb_t
     void* active_mapping;
 };
 
-struct tt_noc_target_t
+struct tt_noc_params_t
 {
     uint64_t addr;
 	uint16_t x_end;
@@ -284,7 +284,7 @@ int32_t tt_dma_free(tt_device_t* device, void* buf, size_t size)
 //    - put it back when done
 int32_t tt_noc_read32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, uint32_t* value)
 {
-    struct tt_noc_target_t target = {0};
+    struct tt_noc_params_t params = {0};
     tt_tlb_t* tlb;
     void* mapping;
     uint64_t offset;
@@ -308,13 +308,13 @@ int32_t tt_noc_read32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr
     aligned_addr = addr & ~(tlb->size - 1);
     offset = addr & (tlb->size - 1);
 
-    target.addr = aligned_addr;
-    target.x_end = x;
-    target.y_end = y;
-    target.noc = 0;
-    target.ordering = 1;    // strict
+    params.addr = aligned_addr;
+    params.x_end = x;
+    params.y_end = y;
+    params.noc = 0;
+    params.ordering = TT_NOC_ORDERING_STRICT;
 
-    ret = tt_tlb_config_target(tlb, &target);
+    ret = tt_tlb_config_params(tlb, &params);
 
     if (ret != 0) {
         tt_tlb_free(tlb);
@@ -329,7 +329,7 @@ int32_t tt_noc_read32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr
 
 int32_t tt_noc_write32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, uint32_t value)
 {
-    struct tt_noc_target_t target = {0};
+    struct tt_noc_params_t params = {0};
     tt_tlb_t* tlb;
     void* mapping;
     uint64_t offset;
@@ -352,12 +352,13 @@ int32_t tt_noc_write32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t add
     aligned_addr = addr & ~(tlb->size - 1);
     offset = addr & (tlb->size - 1);
 
-    target.addr = aligned_addr;
-    target.x_end = x;
-    target.y_end = y;
-    target.noc = 0;
-    target.ordering = 1;    // strict
-    ret = tt_tlb_config_target(tlb, &target);
+    params.addr = aligned_addr;
+    params.x_end = x;
+    params.y_end = y;
+    params.noc = 0;
+    params.ordering = TT_NOC_ORDERING_STRICT;
+
+    ret = tt_tlb_config_params(tlb, &params);
 
     if (ret != 0) {
         tt_tlb_free(tlb);
@@ -372,7 +373,7 @@ int32_t tt_noc_write32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t add
 
 int32_t tt_noc_read(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, void* dst, size_t size)
 {
-    struct tt_noc_target_t target = {0};
+    struct tt_noc_params_t params = {0};
     tt_tlb_t* tlb;
     void* mapping;
     uint8_t* dst_ptr;
@@ -392,9 +393,9 @@ int32_t tt_noc_read(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, 
         return ret;
     }
 
-    target.x_end = x;
-    target.y_end = y;
-    target.noc = 0;
+    params.x_end = x;
+    params.y_end = y;
+    params.noc = 0;
     dst_ptr = (uint8_t*)dst;
 
     while (size > 0) {
@@ -403,8 +404,8 @@ int32_t tt_noc_read(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, 
         size_t chunk_size = MIN(size, tlb->size - offset);
         uint8_t* src_ptr = (uint8_t*)mapping + offset;
 
-        target.addr = aligned_addr;
-        ret = tt_tlb_config_target(tlb, &target);
+        params.addr = aligned_addr;
+        ret = tt_tlb_config_params(tlb, &params);
 
         if (ret != 0) {
             tt_tlb_free(tlb);
@@ -425,7 +426,7 @@ int32_t tt_noc_read(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, 
 
 int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, const void* src, size_t size)
 {
-    struct tt_noc_target_t target = {0};
+    struct tt_noc_params_t params = {0};
     tt_tlb_t* tlb;
     void* mapping;
     uint8_t* src_ptr;
@@ -439,15 +440,15 @@ int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr,
         return ret;
     }
 
-    ret = tt_tlb_mmap_wc(tlb, &mapping);
+    ret = tt_tlb_mmap_uc(tlb, &mapping);
     if (ret != 0) {
         tt_tlb_free(tlb);
         return ret;
     }
 
-    target.x_end = x;
-    target.y_end = y;
-    target.noc = 0;
+    params.x_end = x;
+    params.y_end = y;
+    params.noc = 0;
     src_ptr = (uint8_t*)src;
 
     while (size > 0) {
@@ -456,8 +457,8 @@ int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr,
         size_t chunk_size = MIN(size, tlb->size - offset);
         uint8_t* dst_ptr = (uint8_t*)mapping + offset;
 
-        target.addr = aligned_addr;
-        ret = tt_tlb_config_target(tlb, &target);
+        params.addr = aligned_addr;
+        ret = tt_tlb_config_params(tlb, &params);
 
         if (ret != 0) {
             tt_tlb_free(tlb);
@@ -475,7 +476,6 @@ int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr,
     tt_tlb_free(tlb);
     return 0;
 }
-
 
 int32_t tt_tlb_alloc(tt_device_t* device, size_t size, tt_tlb_t** out_tlb)
 {
@@ -527,7 +527,7 @@ int32_t tt_tlb_config(tt_tlb_t* tlb, uint16_t x, uint16_t y, uint64_t addr)
     return 0;
 }
 
-int32_t tt_tlb_config_target(tt_tlb_t* tlb, tt_noc_target_t* target)
+int32_t tt_tlb_config_params(tt_tlb_t* tlb, tt_noc_params_t* params)
 {
     struct tenstorrent_configure_tlb configure_tlb = {0};
     struct tt_device_t* device;
@@ -537,16 +537,16 @@ int32_t tt_tlb_config_target(tt_tlb_t* tlb, tt_noc_target_t* target)
     device = tlb->device;
 
     configure_tlb.in.id = tlb->id;
-    configure_tlb.in.config.addr = target->addr;
-    configure_tlb.in.config.x_end = target->x_end;
-    configure_tlb.in.config.y_end = target->y_end;
-    configure_tlb.in.config.x_start = target->x_start;
-    configure_tlb.in.config.y_start = target->y_start;
-    configure_tlb.in.config.noc = target->noc;
-    configure_tlb.in.config.mcast = target->mcast;
-    configure_tlb.in.config.ordering = target->ordering;
-    configure_tlb.in.config.linked = target->linked;
-    configure_tlb.in.config.static_vc = target->static_vc;
+    configure_tlb.in.config.addr = params->addr;
+    configure_tlb.in.config.x_end = params->x_end;
+    configure_tlb.in.config.y_end = params->y_end;
+    configure_tlb.in.config.x_start = params->x_start;
+    configure_tlb.in.config.y_start = params->y_start;
+    configure_tlb.in.config.noc = params->noc;
+    configure_tlb.in.config.mcast = params->mcast;
+    configure_tlb.in.config.ordering = params->ordering;
+    configure_tlb.in.config.linked = params->linked;
+    configure_tlb.in.config.static_vc = params->static_vc;
 
     if (ioctl(device->fd, TENSTORRENT_IOCTL_CONFIGURE_TLB, &configure_tlb) != 0) {
         return -errno;
@@ -599,6 +599,17 @@ int32_t tt_tlb_mmap_wc(tt_tlb_t* tlb, void** out_mapping)
     return 0;
 }
 
+int32_t tt_tlb_munmap(tt_tlb_t* tlb, void* mapping)
+{
+    if (!tlb) return -EINVAL;
+    if (!mapping) return -EINVAL;
+    if (tlb->active_mapping != mapping) return -EINVAL;
+
+    munmap(mapping, tlb->size);
+    tlb->active_mapping = NULL;
+    return 0;
+}
+
 int32_t tt_tlb_free(tt_tlb_t* tlb)
 {
     struct tenstorrent_free_tlb free_tlb = {0};
@@ -623,18 +634,18 @@ int32_t tt_tlb_free(tt_tlb_t* tlb)
     return 0;
 }
 
-int32_t tt_noc_target_alloc(tt_noc_target_t** out_params)
+int32_t tt_noc_params_alloc(tt_noc_params_t** out_params)
 {
-    tt_noc_target_t* params = (tt_noc_target_t*)malloc(sizeof(tt_noc_target_t));
+    tt_noc_params_t* params = (tt_noc_params_t*)malloc(sizeof(tt_noc_params_t));
     if (!params) {
         return -ENOMEM;
     }
-    memset(params, 0, sizeof(tt_noc_target_t));
+    memset(params, 0, sizeof(tt_noc_params_t));
     *out_params = params;
     return 0;
 }
 
-int32_t tt_noc_target_set_xy_end(tt_noc_target_t* params, int16_t x, int16_t y)
+int32_t tt_noc_params_set_xy_end(tt_noc_params_t* params, int16_t x, int16_t y)
 {
     if (!params) return -EINVAL;
     params->x_end = x;
@@ -642,7 +653,7 @@ int32_t tt_noc_target_set_xy_end(tt_noc_target_t* params, int16_t x, int16_t y)
     return 0;
 }
 
-int32_t tt_noc_target_set_xy_start(tt_noc_target_t* params, int16_t x, int16_t y)
+int32_t tt_noc_params_set_xy_start(tt_noc_params_t* params, int16_t x, int16_t y)
 {
     if (!params) return -EINVAL;
     params->x_start = x;
@@ -650,42 +661,42 @@ int32_t tt_noc_target_set_xy_start(tt_noc_target_t* params, int16_t x, int16_t y
     return 0;
 }
 
-int32_t tt_noc_target_set_noc(tt_noc_target_t* params, uint8_t noc)
+int32_t tt_noc_params_set_noc(tt_noc_params_t* params, uint8_t noc)
 {
     if (!params) return -EINVAL;
     params->noc = noc;
     return 0;
 }
 
-int32_t tt_noc_target_set_mcast(tt_noc_target_t* params, uint8_t mcast)
+int32_t tt_noc_params_set_mcast(tt_noc_params_t* params, bool mcast)
 {
     if (!params) return -EINVAL;
     params->mcast = mcast;
     return 0;
 }
 
-int32_t tt_noc_target_set_ordering(tt_noc_target_t* params, uint8_t ordering)
+int32_t tt_noc_params_set_ordering(tt_noc_params_t* params, enum tt_noc_ordering ordering)
 {
     if (!params) return -EINVAL;
     params->ordering = ordering;
     return 0;
 }
 
-int32_t tt_noc_target_set_linked(tt_noc_target_t* params, uint8_t linked)
+int32_t tt_noc_params_set_linked(tt_noc_params_t* params, bool linked)
 {
     if (!params) return -EINVAL;
     params->linked = linked;
     return 0;
 }
 
-int32_t tt_noc_target_set_static_vc(tt_noc_target_t* params, uint8_t static_vc)
+int32_t tt_noc_params_set_static_vc(tt_noc_params_t* params, uint8_t static_vc)
 {
     if (!params) return -EINVAL;
     params->static_vc = static_vc;
     return 0;
 }
 
-int32_t tt_noc_target_free(tt_noc_target_t* params)
+int32_t tt_noc_params_free(tt_noc_params_t* params)
 {
     if (!params) return -EINVAL;
     free(params);

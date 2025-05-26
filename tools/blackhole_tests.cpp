@@ -7,24 +7,23 @@
 
 void blackhole_noc_sanity_check(Device& device)
 {
-    static constexpr uint32_t BH_GRID_X = 17;
-    static constexpr uint32_t BH_GRID_Y = 12;
     static constexpr uint64_t NOC_NODE_ID = 0xffb20044ULL;
     static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
 
     bool translated = device.is_translated();
     uint64_t address = translated ? NOC_NODE_ID_LOGICAL : NOC_NODE_ID;
 
-    auto is_tensix = [](uint32_t x, uint32_t y) -> bool {
+    auto is_tensix_bh = [](uint32_t x, uint32_t y) -> bool {
         return (y >= 2 && y <= 11) &&   // Valid y range
             ((x >= 1 && x <= 7) ||      // Left block
             (x >= 10 && x <= 16));      // Right block
     };
 
-    for (uint32_t x = 0; x < BH_GRID_X; ++x) {
-        for (uint32_t y = 0; y < BH_GRID_Y; ++y) {
+    auto [size_x, size_y] = device.get_noc_grid_size();
+    for (uint32_t x = 0; x < size_x; ++x) {
+        for (uint32_t y = 0; y < size_y; ++y) {
 
-            if (!is_tensix(x, y))
+            if (!is_tensix_bh(x, y))
                 continue;
 
             uint32_t node_id = device.noc_read32(x, y, address);

@@ -223,11 +223,15 @@ bool Device::is_blackhole() const
     return device_info.device_id == BLACKHOLE_ID;
 }
 
-bool Device::is_translated() const
+bool Device::is_translated()
 {
     bool enabled = false;
     if (is_wormhole()) {
-        LOG_FATAL("TODO: Implement Device::is_translated for Wormhole.");
+        static constexpr uint64_t NIU_CFG_BASE = 0x1000A0000;
+        static constexpr uint64_t NIU_CFG_OFFSET = 0x100;
+        auto tlb_window = map_tlb_2M(0, 0, NIU_CFG_BASE, CacheMode::Uncached);
+        auto cfg = tlb_window->read32(NIU_CFG_OFFSET);
+        enabled = (cfg >> 14) & 0x1;
     } else if (is_blackhole()) {
         static constexpr uint64_t NIU_CFG = 0x4100; // in NOC2AXI segment, in BAR0
         auto noc2axi = bh_map_noc2axi(fd);
@@ -291,6 +295,33 @@ coord_t Device::get_noc_grid_size() const
     return {0, 0};
 }
 
+void* Device::allocate_dma_buffer(size_t size, uint64_t* iova_out, uint64_t* noc_addr_out)
+{
+    static uint8_t buf_index = 0;
+    tenstorrent_allocate_dma_buf dmabuf{};
+    dmabuf.in.requested_size = size;
+    dmabuf.in.flags = TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA;
+    dmabuf.in.buf_index = buf_index++;
+
+    if (ioctl(fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) < 0) {
+        LOG_FATAL("Failed to allocate DMA buffer");
+    }
+
+    if (iova_out) {
+        *iova_out = dmabuf.out.physical_address;
+    }
+
+    if (noc_addr_out) {
+        *noc_addr_out = dmabuf.out.noc_address;
+    }
+
+    void* buffer = mmap(nullptr, dmabuf.out.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, dmabuf.out.mapping_offset);
+    if (buffer == MAP_FAILED) {
+        LOG_FATAL("Failed to map DMA buffer");
+    }
+
+    return buffer;
+}
 
 std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc)
 {
@@ -325,7 +356,7 @@ std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t addr
         .ordering = ordering,
     };
 
-    // LOG_DEBUG("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
+    // LOG_INFO("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
     auto handle = std::make_unique<TlbHandle>(fd, size, config, mode);
 
     return std::make_unique<TlbWindow>(std::move(handle), offset);
@@ -389,8 +420,9 @@ uint32_t Device::noc_read32(uint16_t x, uint16_t y, uint64_t address, int noc)
     return window->read32(0);
 }
 
-uint64_t Device::map_for_dma(void* buffer, size_t size)
+uint64_t Device::map_for_dma(void* buffer, size_t size, uint64_t* noc_addr_out)
 {
+#if 0
     tenstorrent_pin_pages pin{};
     pin.in.output_size_bytes = sizeof(pin.out);
     pin.in.virtual_address = reinterpret_cast<uint64_t>(buffer);
@@ -399,11 +431,29 @@ uint64_t Device::map_for_dma(void* buffer, size_t size)
     if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {
         throw std::system_error(errno, std::generic_category(), "Failed to pin pages");
     }
+#endif
+    struct
+    {
+        tenstorrent_pin_pages_in in;
+        tenstorrent_pin_pages_out_extended out;
+    } pin{};
+    pin.in.output_size_bytes = sizeof(pin.out);
+    pin.in.virtual_address = reinterpret_cast<uint64_t>(buffer);
+    pin.in.size = size;
+    pin.in.flags = TENSTORRENT_PIN_PAGES_NOC_DMA;
+
+    if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {
+        LOG_FATAL("Failed to pin pages");
+    }
 
     uint64_t iova = pin.out.physical_address;
+    uint64_t noc_addr = pin.out.noc_address;
 
-    LOG_DEBUG("Mapped buffer at VA %p to IOVA %lx", buffer, iova);
+    if (noc_addr_out) {
+        *noc_addr_out = noc_addr;
+    }
 
+    LOG_INFO("Mapped buffer at VA %p to IOVA %lx; NOC addr %lx", buffer, iova, noc_addr);
     return iova;
 }
 
@@ -434,5 +484,5 @@ void Device::enable_dbi(bool enable)
 Device::~Device() noexcept
 {
     close(fd);
-    LOG_DEBUG("Closed device");
+    LOG_INFO("Closed device");
 }

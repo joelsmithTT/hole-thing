@@ -2,9 +2,8 @@
 #include "logger.hpp"
 #include "types.hpp"
 
-void wormhole_noc_sanity_test()
+void wormhole_noc_sanity_test(Device& device)
 {
-    Device device("/dev/tenstorrent/0");
     {
         constexpr uint32_t ARC_X = 0;
         constexpr uint32_t ARC_Y = 10;
@@ -34,6 +33,28 @@ void wormhole_noc_sanity_test()
             RUNTIME_ERROR("Something is screwed up with the chip");
         } else {
             LOG_INFO("DDR node_id: %08x", node_id);
+        }
+    }
+
+    constexpr uint64_t TENSIX_NOC_NODE_ID = 0xffb2002cULL;
+    constexpr uint64_t TENSIX_NODE_ID_LOGICAL = 0xffb20138ULL;
+    auto is_tensix_wh = [](uint32_t x, uint32_t y) -> bool {
+        return (((y != 6) && (y >= 1) && (y <= 11)) && // valid Y
+                ((x != 5) && (x >= 1) && (x <= 9)));   // valid X
+    };
+    for (uint32_t x = 0; x < 12; ++x) {
+        for (uint32_t y = 0; y < 12; ++y) {
+            if (!is_tensix_wh(x, y)) {
+                continue;
+            }
+            auto node_id = device.noc_read32(x, y, TENSIX_NOC_NODE_ID);
+            auto node_id_x = (node_id >> 0x0) & 0x3f;
+            auto node_id_y = (node_id >> 0x6) & 0x3f;
+
+            if (node_id_x != x || node_id_y != y) {
+                LOG_ERROR("Expected x: %u, y: %u, got x: %u, y: %u", x, y, node_id_x, node_id_y);
+                RUNTIME_ERROR("Something is screwed up with the chip");
+            }
         }
     }
 
@@ -76,7 +97,7 @@ void wormhole_new_pin()
     uint64_t iova1 = pin1.out.physical_address;
     uint64_t noc_addr1 = pin1.out.noc_address;
 
-    LOG_DEBUG("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer, iova1, noc_addr1);
+    LOG_INFO("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer, iova1, noc_addr1);
 
     size_t buffer_size2 = 0x1000;
     void* buffer2 = std::aligned_alloc(buffer_alignment, buffer_size2);
@@ -105,7 +126,7 @@ void wormhole_new_pin()
     uint64_t iova2 = pin2.out.physical_address;
     uint64_t noc_addr2 = pin2.out.noc_address;
 
-    LOG_DEBUG("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer2, iova2, noc_addr2);
+    LOG_INFO("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer2, iova2, noc_addr2);
 
     size_t buffer_size3 = 0x100000;
     void* buffer3 = std::aligned_alloc(buffer_alignment, buffer_size3);
@@ -134,7 +155,7 @@ void wormhole_new_pin()
     uint64_t iova3 = pin3.out.physical_address;
     uint64_t noc_addr3 = pin3.out.noc_address;
 
-    LOG_DEBUG("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer3, iova3, noc_addr3);
+    LOG_INFO("Mapped buffer at VA %p to IOVA 0x%016lx; NOC: 0x%08x", buffer3, iova3, noc_addr3);
     tenstorrent_unpin_pages unpin{};
     unpin.in.virtual_address = reinterpret_cast<uint64_t>(buffer3);
     unpin.in.size = buffer_size3;
@@ -188,7 +209,7 @@ void wormhole_pin_unpin_test()
         }
     };
 
-    LOG_DEBUG("Created %zu buffers for testing", buffers.size());
+    LOG_INFO("Created %zu buffers for testing", buffers.size());
 
     // First, pin all buffers
     for (size_t i = 0; i < buffers.size(); i++) {
@@ -209,7 +230,7 @@ void wormhole_pin_unpin_test()
 
         if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {
             if (errno == ENOSPC) {
-                LOG_DEBUG("Buffer %zu: Expected failure - exceeded 16-region limit", i);
+                LOG_INFO("Buffer %zu: Expected failure - exceeded 16-region limit", i);
             } else {
                 LOG_ERROR("Failed to pin buffer %zu: %s", i, strerror(errno));
             }
@@ -220,7 +241,7 @@ void wormhole_pin_unpin_test()
         noc_addrs[i] = pin.out.noc_address;
         is_pinned[i] = true;
 
-        LOG_DEBUG("Buffer %zu: VA %p, size 0x%016zx, IOVA 0x%016lx, NOC 0x%08x, %s", i, buffers[i], buffer_sizes[i],
+        LOG_INFO("Buffer %zu: VA %p, size 0x%016zx, IOVA 0x%016lx, NOC 0x%08x, %s", i, buffers[i], buffer_sizes[i],
                   iovas[i], noc_addrs[i], is_top_down[i] ? "top-down" : "bottom-up");
     }
 
@@ -238,7 +259,7 @@ void wormhole_pin_unpin_test()
             continue;
         }
 
-        LOG_DEBUG("Unpinned buffer %zu", i);
+        LOG_INFO("Unpinned buffer %zu", i);
         is_pinned[i] = false;
     }
 
@@ -280,7 +301,7 @@ void wormhole_pin_unpin_test()
 
         if (ioctl(fd, TENSTORRENT_IOCTL_PIN_PAGES, &pin) != 0) {
             if (errno == ENOSPC) {
-                LOG_DEBUG("Buffer %zu: Expected failure - exceeded 16-region limit", i);
+                LOG_INFO("Buffer %zu: Expected failure - exceeded 16-region limit", i);
             } else {
                 LOG_ERROR("Failed to re-pin buffer %zu: %s", i, strerror(errno));
             }
@@ -291,7 +312,7 @@ void wormhole_pin_unpin_test()
         noc_addrs[i] = pin.out.noc_address;
         is_pinned[i] = true;
 
-        LOG_DEBUG("Re-pinned buffer %zu: VA %p, new size 0x%016zx, IOVA 0x%016lx, NOC 0x%08x, %s", i, buffers[i],
+        LOG_INFO("Re-pinned buffer %zu: VA %p, new size 0x%016zx, IOVA 0x%016lx, NOC 0x%08x, %s", i, buffers[i],
                   buffer_sizes[i], iovas[i], noc_addrs[i], is_top_down[i] ? "top-down" : "bottom-up");
     }
 
@@ -307,20 +328,25 @@ void wormhole_pin_unpin_test()
         if (ioctl(fd, TENSTORRENT_IOCTL_UNPIN_PAGES, &unpin) != 0) {
             LOG_ERROR("Failed to unpin buffer %zu in final cleanup: %s", i, strerror(errno));
         } else {
-            LOG_DEBUG("Unpinned buffer %zu in final cleanup", i);
+            LOG_INFO("Unpinned buffer %zu in final cleanup", i);
             is_pinned[i] = false;
         }
     }
 
-    LOG_DEBUG("Completed pin/unpin test");
+    LOG_INFO("Completed pin/unpin test");
 }
 #endif
 
+
 int main()
 {
-    // wormhole_noc_sanity_test();
-    // wormhole_noc_dma();
-    // wormhole_new_pin();
-    // wormhole_pin_unpin_test();
+    for (auto device_path : Device::enumerate_devices()) {
+        Device device(device_path);
+        if (!device.is_wormhole()) {
+            continue;
+        }
+
+        wormhole_noc_sanity_test(device);
+    }
     return 0;
 }

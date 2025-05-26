@@ -36,15 +36,15 @@ struct tt_tlb_t
 struct tt_noc_params_t
 {
     uint64_t addr;
-	uint16_t x_end;
-	uint16_t y_end;
-	uint16_t x_start;
-	uint16_t y_start;
-	uint8_t noc;
-	uint8_t mcast;
-	uint8_t ordering;
-	uint8_t linked;
-	uint8_t static_vc;
+    uint16_t x_end;
+    uint16_t y_end;
+    uint16_t x_start;
+    uint16_t y_start;
+    uint8_t noc;
+    uint8_t mcast;
+    uint8_t ordering;
+    uint8_t linked;
+    uint8_t static_vc;
 };
 
 // Prototypes

@@ -440,7 +440,7 @@ int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr,
         return ret;
     }
 
-    ret = tt_tlb_mmap_uc(tlb, &mapping);
+    ret = tt_tlb_mmap_wc(tlb, &mapping);
     if (ret != 0) {
         tt_tlb_free(tlb);
         return ret;

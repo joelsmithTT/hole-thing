@@ -48,19 +48,6 @@ int uc_vs_wc()
     std::vector<uint8_t> blob(1 << 21, 0xff);
 
     {
-        tt_tlb_t* tlb_uc;
-        void* mapping_uc;
-        OK(tt_tlb_alloc(device, 1 << 21, &tlb_uc));
-        OK(tt_tlb_mmap_uc(tlb_uc, &mapping_uc));
-        OK(tt_tlb_config(tlb_uc, x, y, addr));
-
-        auto now = std::chrono::high_resolution_clock::now();
-        memcpy(mapping_uc, blob.data(), blob.size());
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - now);
-        printf("uc time: %ldms\n", duration.count());
-    }
-    {
         tt_tlb_t* tlb_wc;
         void* mapping_wc;
         OK(tt_tlb_alloc(device, 1 << 21, &tlb_wc));
@@ -72,6 +59,19 @@ int uc_vs_wc()
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - now);
         printf("wc time: %ldms\n", duration.count());
+    }
+    {
+        tt_tlb_t* tlb_uc;
+        void* mapping_uc;
+        OK(tt_tlb_alloc(device, 1 << 21, &tlb_uc));
+        OK(tt_tlb_mmap_uc(tlb_uc, &mapping_uc));
+        OK(tt_tlb_config(tlb_uc, x, y, addr));
+
+        auto now = std::chrono::high_resolution_clock::now();
+        memcpy(mapping_uc, blob.data(), blob.size());
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - now);
+        printf("uc time: %ldms\n", duration.count());
     }
 
     OK(tt_device_close(device));

@@ -102,7 +102,7 @@ void test_noc_dma_with_dmabufs(const std::string& device_path, size_t num_buffer
 
     for (size_t i = 0; i < num_buffers; i++) {
         tenstorrent_allocate_dma_buf dmabuf{};
-        dmabuf.in.requested_size = 1 << 28;
+        dmabuf.in.requested_size = 1 << 20;
         dmabuf.in.flags = TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA;
         dmabuf.in.buf_index = (uint8_t)i;
         if (ioctl(fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) < 0) {
@@ -163,6 +163,9 @@ void test_noc_dma_hp(Device& device)
     n = device.is_wormhole() ? std::min(n, 4) : n;
 
     for (int32_t i = 0; i < n; i++) {
+        if (device.is_wormhole() && i == 3) {
+            buffer_size -= (1 << 28);
+        }
         void* buffer = mmap(nullptr, buffer_size, PROT_READ | PROT_WRITE,
                             MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_HUGE_1GB, -1, 0);
 

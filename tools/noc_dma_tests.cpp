@@ -102,7 +102,7 @@ void test_noc_dma_with_dmabufs(const std::string& device_path, size_t num_buffer
 
     for (size_t i = 0; i < num_buffers; i++) {
         tenstorrent_allocate_dma_buf dmabuf{};
-        dmabuf.in.requested_size = 4 << 21;
+        dmabuf.in.requested_size = 1 << 28;
         dmabuf.in.flags = TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA;
         dmabuf.in.buf_index = (uint8_t)i;
         if (ioctl(fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) < 0) {
@@ -116,6 +116,13 @@ void test_noc_dma_with_dmabufs(const std::string& device_path, size_t num_buffer
 
         uint64_t noc_addr = dmabuf.out.noc_address;
         uint64_t iova = dmabuf.out.physical_address;
+
+        if (device.is_wormhole() && iova & 0xffff'ffff'0000'0000ULL) {
+            // Not broken, per se, but legacy constraints force 32-bit DMA
+            // addressing for ALLOCATE_DMA_BUF.  The intent here is to make sure
+            // that I don't accidentaly break that.
+            LOG_FATAL("DMA buffer IOVA is not 32-bit on Wormhole, this is broken.");
+        }
 
         LOG_INFO("DMA buffer: noc_addr = %lx, iova = %lx, size = %zu", noc_addr, iova, dmabuf.out.size);
 
@@ -217,9 +224,9 @@ int main()
 {
     for (auto device_path : Device::enumerate_devices()) {
         Device device(device_path);
+        test_noc_dma_with_dmabufs(device_path, 16);
         if (device.iommu_enabled()) {
             test_noc_dma(device, 16);
-            // test_noc_dma_with_dmabufs(device_path, 16);
         } else {
             test_noc_dma_hp(device);
         }

@@ -42,6 +42,9 @@ void blackhole_noc_sanity_check(tt::Device& device)
         }
     }
     printf("Blackhole NOC sanity test PASSED\n");
+    uint32_t pcie_enum_time = device.noc_read32(8, 0, 0x80030438ULL);
+    float in_ms = pcie_enum_time / 50000.0f;
+    printf("PCIE enum time: %f ms\n", in_ms);
 }
 
 void wormhole_noc_sanity_check(tt::Device& device)

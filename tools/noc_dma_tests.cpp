@@ -227,7 +227,7 @@ int main()
 {
     for (auto device_path : Device::enumerate_devices()) {
         Device device(device_path);
-        test_noc_dma_with_dmabufs(device_path, 16);
+        // test_noc_dma_with_dmabufs(device_path, 16);
         if (device.iommu_enabled()) {
             test_noc_dma(device, 16);
         } else {

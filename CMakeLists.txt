@@ -9,6 +9,3 @@ set(CMAKE_CXX_STANDARD 20)
 add_subdirectory(src)
 include_directories(src)
 add_subdirectory(tools)
-
-add_subdirectory(ttio)
-include_directories(ttio)

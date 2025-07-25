@@ -47,6 +47,7 @@ public:
     bool is_translated();
 
     PciDeviceInfo get_device_info() const;
+    MappedMemory get_bar0();
     MappedMemory& get_bar2();
     MappedMemory get_bar4();
 
@@ -60,6 +61,7 @@ public:
     void unpin_dma_buffer(void* buffer, size_t size);
 
     std::unique_ptr<TlbWindow> map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc);
+    std::unique_ptr<TlbWindow> map_tlb_1M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc = 0);
     std::unique_ptr<TlbWindow> map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc = 0);
     std::unique_ptr<TlbWindow> map_tlb_4G(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc = 0);
 

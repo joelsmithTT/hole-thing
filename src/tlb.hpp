@@ -54,6 +54,8 @@ public:
             SYSTEM_ERROR("Failed to map TLB");
         }
 
+        LOG_INFO("Mapped TLB id=%d", tlb_id);
+
         try {
             configure(config);
         } catch (const std::system_error& e) {
@@ -68,10 +70,6 @@ public:
         tenstorrent_configure_tlb configure_tlb{};
         configure_tlb.in.id = tlb_id;
         configure_tlb.in.config = new_config;
-
-        if (std::memcmp(&new_config, &tlb_config, sizeof(new_config)) == 0) {
-            return;
-        }
 
         if (ioctl(fd, TENSTORRENT_IOCTL_CONFIGURE_TLB, &configure_tlb) != 0) {
             SYSTEM_ERROR("Failed to configure TLB");
@@ -112,6 +110,7 @@ private:
         tenstorrent_free_tlb free_tlb{};
         free_tlb.in.id = tlb_id;
         ioctl(fd, TENSTORRENT_IOCTL_FREE_TLB, &free_tlb);
+        LOG_INFO("Freed TLB id=%d", tlb_id);
     }
 };
 

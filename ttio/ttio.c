@@ -227,7 +227,7 @@ int32_t tt_dma_alloc(tt_device_t* device, size_t size, void** out_buf, uint64_t*
     dmabuf.in.requested_size = size;
     dmabuf.in.flags = TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA;
     dmabuf.in.buf_index = (uint8_t)buf_index;
-    
+
     if (ioctl(device->fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) != 0) {
         device->dmabufs[buf_index] = 0;
         return -errno;
@@ -380,7 +380,6 @@ int32_t tt_noc_read32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr
 
 int32_t tt_noc_write32(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr, uint32_t value)
 {
-    if (!value) return -EINVAL;
     if (addr % 4 != 0) return -EINVAL;
 
     tt_tlb_t* tlb;
@@ -482,8 +481,7 @@ int32_t tt_noc_write(tt_device_t* device, uint16_t x, uint16_t y, uint64_t addr,
         size_t chunk_size = MIN(size, tlb->size - offset);
         uint8_t* dst_ptr = (uint8_t*)tlb->mmio + offset;
 
-        params.addr = aligned_addr;
-        ret = tt_tlb_set_params(tlb, &params);
+        ret = tt_tlb_write_config(tlb, x, y, aligned_addr);
 
         if (ret != 0) {
             tt_tlb_free(tlb);

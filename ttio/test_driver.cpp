@@ -11,6 +11,123 @@
 #include <map>
 #include <random>
 
+#include <thread>
+// The read and write pointers wrap at 2x the queue size.
+// Each request or response is an array of 8 32-bit words.
+
+struct Message
+{
+    uint32_t type;
+    uint32_t data[7];
+};
+static_assert(sizeof(Message) == 32);
+
+uint32_t QUEUE_HEADER_SIZE = 32;
+uint16_t ARC_X = 8;
+uint16_t ARC_Y = 0;
+
+#define req_w 0x00
+#define res_r 0x04
+#define req_r 0x10
+#define res_w 0x14
+
+
+void push_arc_msg(tt::Device& device, const Message& message, uint64_t queue_base_addr, uint32_t num_entries)
+{
+    uint64_t request_base = queue_base_addr + QUEUE_HEADER_SIZE;
+    // 1. Read request wptr and rptr, loop reading the rptr until queue has space. 
+
+    uint32_t wptr = device.noc_read32(ARC_X, ARC_Y, queue_base_addr + req_w);
+    for (;;) {
+        uint32_t rptr = device.noc_read32(ARC_X, ARC_Y, queue_base_addr + req_r);
+        uint32_t num_occupied = (wptr - rptr) % (2 * num_entries);
+        if (num_occupied < num_entries)
+            break;
+    }
+
+    // 2. Write the request queue at index wptr % size. 
+    uint32_t slot = wptr % num_entries;
+    uint32_t request_offset = slot * sizeof(Message);
+    const uint32_t *ptr = reinterpret_cast<const uint32_t*>(&message);
+    for (size_t i = 0; i < 8; ++i) {
+        auto addr = request_base + request_offset + i * sizeof(uint32_t);
+        device.noc_write32(ARC_X, ARC_Y, addr, ptr[i]);
+    }
+
+    // 3. Update the request wptr by (request wptr + 1) % (2*size) 
+    wptr = (wptr + 1) % (2 * num_entries);
+    device.noc_write32(ARC_X, ARC_Y, queue_base_addr + 0x0, wptr);
+}
+
+void pop_arc_msg(tt::Device& device, Message& message, uint64_t queue_base_addr, uint32_t num_entries)
+{
+    uint32_t response_base = queue_base_addr + QUEUE_HEADER_SIZE + (num_entries * sizeof(Message));
+
+    // 1. Read response wptr and rptr, loop reading the wptr until the queue has an entry. 
+    uint32_t rptr = device.noc_read32(ARC_X, ARC_Y, queue_base_addr + res_r);
+
+    for (;;) {
+        uint32_t wptr = device.noc_read32(ARC_X, ARC_Y, queue_base_addr + res_w);
+        uint32_t num_occupied = (wptr - rptr) % (2 * num_entries);
+        if (num_occupied > 0)
+            break;
+    }
+
+    uint32_t slot = rptr % num_entries;
+    uint32_t response_offset = slot * sizeof(Message);
+    uint32_t* ptr = reinterpret_cast<uint32_t*>(&message);
+    for (size_t i = 0; i < 8; ++i) {
+        auto addr = response_base + response_offset + i * sizeof(uint32_t);
+        ptr[i] = device.noc_read32(ARC_X, ARC_Y, addr);
+    }
+
+    rptr = (rptr + 1) % (2 * num_entries);
+    device.noc_write32(ARC_X, ARC_Y, queue_base_addr + res_r, rptr);
+}
+
+void blackhole_arc_message(tt::Device& device, uint32_t message_type)
+{
+    if (device.is_wormhole())
+        return;
+
+    constexpr uint64_t SCRATCH_RAM_11 = 0x8003042C;
+    constexpr uint8_t queue_index = 0;
+    uint16_t ARC_X = 8;
+    uint16_t ARC_Y = 0;
+
+    // qcb = queue control block
+    uint32_t qcb_addr = device.noc_read32(ARC_X, ARC_Y, SCRATCH_RAM_11);
+    uint64_t q_base = device.noc_read32(ARC_X, ARC_Y, qcb_addr);
+    uint64_t q_dims = device.noc_read32(ARC_X, ARC_Y, qcb_addr + 4);
+    uint32_t num_entries = q_dims & 0xFF;   // per queue
+    uint32_t num_queues = (q_dims >> 8) & 0xFF;
+    uint32_t q_size = (2 * num_entries * sizeof(Message)) + QUEUE_HEADER_SIZE;
+    uint32_t msg_queue_base = q_base + queue_index * q_size;
+
+
+    // printf("ARC Message Queue Base Address: 0x%x\n", msg_queue_base);
+    // printf("Number of Entries per Queue: %u\n", num_entries);
+    // printf("Number of Queues: %u\n", num_queues);
+
+
+    push_arc_msg(device, {message_type, 0, 0, 0, 0, 0, 0, 0}, msg_queue_base, num_entries);
+    constexpr uint32_t ARC_FW_INT_ADDR = 0x80030100;
+    constexpr uint32_t ARC_FW_INT_VAL = 65536;
+    device.noc_write32(ARC_X, ARC_Y, ARC_FW_INT_ADDR, ARC_FW_INT_VAL);
+
+    Message message;
+    pop_arc_msg(device, message, msg_queue_base, num_entries);
+
+    printf("ARC Message: %u (0x%x)\n", message.type, message.type);
+    printf("ARC Message Data[0]: %u (0x%x)\n", message.data[0], message.data[0]);
+    printf("ARC Message Data[1]: %u (0x%x)\n", message.data[1], message.data[1]);
+    printf("ARC Message Data[2]: %u (0x%x)\n", message.data[2], message.data[2]);
+    printf("ARC Message Data[3]: %u (0x%x)\n", message.data[3], message.data[3]);
+    printf("ARC Message Data[4]: %u (0x%x)\n", message.data[4], message.data[4]);
+    printf("ARC Message Data[5]: %u (0x%x)\n", message.data[5], message.data[5]);
+    printf("ARC Message Data[6]: %u (0x%x)\n", message.data[6], message.data[6]);
+}
+
 void blackhole_noc_sanity_check(tt::Device& device)
 {
     static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
@@ -167,16 +284,49 @@ void test_telemetry(tt::Device& device)
 
 void run_tests(tt::Device& device)
 {
-    blackhole_noc_sanity_check(device);
-    wormhole_noc_sanity_check(device);
+    uint32_t MSG_TYPE_SEND_PCIE_MSI = 0x17;
+    uint32_t MSG_TYPE_GET_AICLK = 0x34;
+    uint32_t MSG_TYPE_AICLK_GO_BUSY = 0x52;
+    uint32_t MSG_TYPE_AICLK_GO_LONG_IDLE = 0x54;
+    blackhole_arc_message(device, MSG_TYPE_GET_AICLK);
+    blackhole_arc_message(device, MSG_TYPE_SEND_PCIE_MSI);
+    blackhole_arc_message(device, MSG_TYPE_AICLK_GO_BUSY);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    blackhole_arc_message(device, MSG_TYPE_GET_AICLK);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    blackhole_arc_message(device, MSG_TYPE_AICLK_GO_LONG_IDLE);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    blackhole_arc_message(device, MSG_TYPE_GET_AICLK);
 
-    test_telemetry(device);
+    // blackhole_noc_sanity_check(device);
+    // wormhole_noc_sanity_check(device);
 
-    test_noc_dma(device, 21);
-    test_noc_dma(device, 28);
-    test_noc_dma(device, 30);
+    // test_telemetry(device);
+
+    // test_noc_dma(device, 21);
+    // test_noc_dma(device, 28);
+    // test_noc_dma(device, 30);
 }
 
+#include <fstream>
+void bh_debug(tt::Device& device)
+{
+    std::vector<uint8_t> buffer(3364);
+    device.noc_read(8, 3, 0x400030100000ULL, buffer.data(), buffer.size());
+
+    std::ofstream file("wh_debug.bin", std::ios::binary);
+    file.write(reinterpret_cast<const char*>(buffer.data()), buffer.size()-1);
+}
+
+void bh_debug(tt::Device& device, uint64_t address, size_t size, std::string name)
+{
+    std::vector<uint8_t> buffer(size);
+    device.noc_read(8, 3, address, buffer.data(), buffer.size());
+
+    std::ofstream file(name, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+    printf("Wrote %s (size=0x%lx)\n", name.c_str(), size);
+}
 
 std::vector<std::string> enumerate_devices()
 {
@@ -195,7 +345,11 @@ int main()
 {
     for (auto device_path : enumerate_devices()) {
         tt::Device device(device_path.c_str());
-        run_tests(device);
+        if (device.is_blackhole()) {
+            // bh_debug(device, 0x400030000000ULL, 272552, "opensbi.bin");
+            bh_debug(device, 0x400030200000ULL, 21934592, "kernel.bin");
+            // bh_debug(device, 0x400030100000ULL, 3364, "dtb.bin");
+        }
     }
 
     return 0;

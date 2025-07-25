@@ -58,7 +58,7 @@ void test_noc_dma(Device& device, size_t num_buffers)
         std::vector<uint8_t> random_data(buffer_size);
         fill_with_random_data(random_data.data(), buffer_size);
         LOG_INFO("Writing to x=%u, y=%u, noc_addr=0x%lx", x, y, noc_addr);
-        device.write_block(x, y, noc_addr, random_data.data(), buffer_size);
+        device.write_block(x, y, noc_addr, random_data.data(), buffer_size, 1);
 
         patterns.push_back(random_data);
         buffers.push_back(static_cast<uint8_t*>(buffer));
@@ -108,7 +108,7 @@ void test_noc_dma_with_dmabufs(const std::string& device_path, size_t num_buffer
         if (ioctl(fd, TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF, &dmabuf) < 0) {
             SYSTEM_ERROR("Failed to allocate dmabuf");
         }
-        
+
         void *mapping = mmap(nullptr, dmabuf.out.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, dmabuf.out.mapping_offset);
         if (mapping == MAP_FAILED) {
             SYSTEM_ERROR("Failed to mmap dmabuf");
@@ -227,6 +227,10 @@ int main()
 {
     for (auto device_path : Device::enumerate_devices()) {
         Device device(device_path);
+        if (device.is_blackhole()) {
+            LOG_INFO("Skipping blackhole device %s", device_path.c_str());
+            continue;
+        }
         // test_noc_dma_with_dmabufs(device_path, 16);
         if (device.iommu_enabled()) {
             test_noc_dma(device, 16);

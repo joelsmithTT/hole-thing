@@ -247,6 +247,11 @@ PciDeviceInfo Device::get_device_info() const
     return device_info;
 }
 
+MappedMemory Device::get_bar0()
+{
+    return map_bar0(fd);
+}
+
 MappedMemory& Device::get_bar2()
 {
     return bar2;
@@ -325,26 +330,6 @@ void* Device::allocate_dma_buffer(size_t size, uint64_t* iova_out, uint64_t* noc
 
 std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, size_t size, int noc)
 {
-    // HACK
-    // TODO: if you want to do this, I think you need to pass out an unconfigured window.
-    // Leave it up to the caller to futz around with ordering.
-    // Maybe the window can be partially configured?  Have a set_ordering() method that rewrites the config?
-    // I don't know.  But this isn't the way to do it:
-    uint8_t ordering = 0;
-    if (noc == 2) {
-        noc = 1;
-        ordering = 2;
-    }
-
-    // TODO: clean this shit up before you trip over it again.
-#if HACK
-    if (is_wormhole() && noc == 1) {
-        auto [size_x, size_y] = get_noc_grid_size();
-        x = size_x - 1 - x;
-        y = size_y - 1 - y;
-    }
-#endif
-
     const uint64_t window_mask = size - 1;
     const uint64_t addr = address & ~window_mask;
     const uint64_t offset = address & window_mask;
@@ -353,13 +338,17 @@ std::unique_ptr<TlbWindow> Device::map_tlb(uint16_t x, uint16_t y, uint64_t addr
         .x_end = x,
         .y_end = y,
         .noc = static_cast<uint8_t>(noc),
-        .ordering = ordering,
     };
 
-    // LOG_INFO("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
+    LOG_INFO("Mapping TLB window: x=%u, y=%u, address=0x%lx, offset=0x%lx, mode=%d", x, y, addr, offset, mode);
     auto handle = std::make_unique<TlbHandle>(fd, size, config, mode);
 
     return std::make_unique<TlbWindow>(std::move(handle), offset);
+}
+
+std::unique_ptr<TlbWindow> Device::map_tlb_1M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc)
+{
+    return map_tlb(x, y, address, mode, 1 << 20, noc);
 }
 
 std::unique_ptr<TlbWindow> Device::map_tlb_2M(uint16_t x, uint16_t y, uint64_t address, CacheMode mode, int noc)

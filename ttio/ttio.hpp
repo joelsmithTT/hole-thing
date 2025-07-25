@@ -192,8 +192,8 @@ public:
         OK(tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_DEVICE, &pci_device));
         OK(tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_FUNCTION, &pci_function));
 
-        printf("Device: %04x:%04x; driver: %d\n", vendor_id, device_id, driver_version);
-        printf("PCI: %04x:%02x:%02x.%x\n", pci_domain, pci_bus, pci_device, pci_function);
+        //printf("Device: %04x:%04x; driver: %d\n", vendor_id, device_id, driver_version);
+        //printf("PCI: %04x:%02x:%02x.%x\n", pci_domain, pci_bus, pci_device, pci_function);
     }
 
     tt_device_t* handle() const { return device; }

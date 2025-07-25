@@ -155,6 +155,8 @@ int main()
             continue;
         }
 
+        auto tlb = device.map_tlb(8, 0, 0x80030434, CacheMode::Uncached, 1 << 24, 0);
+
         blackhole_noc_sanity_check(device);
     }
     return 0;

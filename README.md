@@ -1,23 +1,19 @@
 # Hole Thing
-This is a lightweight interface to
-[tt-kmd](https://github.com/tenstorrent/tt-kmd) and a place to store code
-snippets related to its development.  You probably want
-[tt-umd](https://github.com/tenstorrent/tt-umd) or
-[Luwen](https://github.com/tenstorrent/luwen), not this.
+You probably want [tt-umd](https://github.com/tenstorrent/tt-umd), not this.
 
-## Goals
-* Support Blackhole, Wormhole chips
-* Fast build
+### Purpose
+* Support [tt-kmd](https://github.com/tenstorrent/tt-kmd) development
+
+### Goals
 * Minimal dependencies
+* Fast build
 
-## Dependencies
-* g++-12 or better
-* cmake
+### Dependencies
+* g++
+* [tt-kmd](https://github.com/tenstorrent/tt-kmd)
+* [libttkmd](https://github.com/tenstorrent/tt-kmd/tree/joelsmith/api/lib)
 
-## Build
+### Usage
 ```
-mkdir build
-cd build
-cmake ..
-make
+make test
 ```

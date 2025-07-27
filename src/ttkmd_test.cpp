@@ -210,12 +210,82 @@ void test_telemetry(tt::Device& device)
     }
 }
 
+#define WH_DDR_X 0
+#define WH_DDR_Y 0
+#define BH_DDR_X 17
+#define BH_DDR_Y 12
+
+static uint32_t seed;
+static void my_srand(uint32_t new_seed)
+{
+    seed = new_seed;
+}
+
+static inline uint32_t my_rand(void)
+{
+    seed = seed * 1103515245 + 12345;
+    return (uint32_t)(seed / 65536) % 32768;
+}
+
+void block_io_test(tt::Device& dev)
+{
+    uint16_t ddr_x = dev.is_wormhole() ? WH_DDR_X : dev.is_blackhole() ? BH_DDR_X : -1;
+    uint16_t ddr_y = dev.is_wormhole() ? WH_DDR_Y : dev.is_blackhole() ? BH_DDR_Y : -1;
+
+    /* Allocate buffer. */
+    void* data;
+    size_t len = 0x380000; /* 3.5 MiB */
+    data = malloc(len);
+    if (!data) {
+        printf("Failed to allocate memory for data: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    /* Fill buffer with pseudorandom numbers. */
+    my_srand(42);
+    for (size_t i = 0; i < len / sizeof(uint32_t); i++) {
+        ((uint32_t*)data)[i] = my_rand();
+    }
+
+    /* Write the buffer and read it back in a few different places */
+    uint64_t addresses[] = { 0x000000, 0xF00008, 0x50000C };
+    for (size_t i = 0; i < sizeof(addresses) / sizeof(addresses[0]); i++) {
+        uint64_t addr = addresses[i];
+
+        /* Write data to the NOC. */
+        tt::TlbWindow tlb(dev, 1ULL << 21, TT_MMIO_CACHE_MODE_WC);
+        tt::TlbWindowUtils::noc_write(tlb, ddr_x, ddr_y, addr, data, len);
+
+        /* Read it back into a new buffer. */
+        void* read_data = malloc(len);
+        if (!read_data) {
+            printf("Failed to allocate memory for read_data: %s\n", strerror(errno));
+            free(data);
+            exit(EXIT_FAILURE);
+        }
+        tt::TlbWindowUtils::noc_read(tlb, ddr_x, ddr_y, addr, read_data, len);
+
+        /* Verify that the data matches. */
+        if (memcmp(data, read_data, len) != 0) {
+            printf("Data mismatch at address 0x%lx\n", addr);
+            free(read_data);
+            free(data);
+            exit(EXIT_FAILURE);
+        }
+
+        free(read_data);
+    }
+
+    printf("Block I/O test PASSED\n");
+}
+
 
 void run_tests(tt::Device& device)
 {
     blackhole_noc_sanity_check(device);
     blackhole_noc_sanity_check2(device);
     wormhole_noc_sanity_check(device);
+    block_io_test(device);
 
     test_telemetry(device);
 

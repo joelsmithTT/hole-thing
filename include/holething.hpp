@@ -243,7 +243,6 @@ public:
         if (r) {
             throw std::system_error(r, std::generic_category(), "Failed to open TLB window");
         }
-
     }
 
     size_t get_size() const { return size; }
@@ -287,6 +286,24 @@ public:
         }
     }
 
+    uint32_t read32(off_t offset)
+    {
+        if (offset % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
+
+        return *(volatile uint32_t*)((uint8_t*)get_mmio() + offset);
+    }
+
+    void write32(off_t offset, uint32_t value)
+    {
+        if (offset % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
+
+        *(volatile uint32_t*)((uint8_t*)get_mmio() + offset) = value;
+    }
+
     ~TlbWindow()
     {
         tt_tlb_free(device.handle(), tlb);
@@ -309,7 +326,7 @@ public:
         }
 
         tlb.map(x, y, addr & ~(tlb.get_size() - 1));
-        return *(volatile uint32_t*)((uint8_t*)tlb.get_mmio() + (addr & (tlb.get_size() - 1)));
+        return tlb.read32(addr & (tlb.get_size() - 1));
     }
 
     static void noc_write32(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr, uint32_t value)
@@ -319,7 +336,7 @@ public:
         }
 
         tlb.map(x, y, addr & ~(tlb.get_size() - 1));
-        *(volatile uint32_t*)((uint8_t*)tlb.get_mmio() + (addr & (tlb.get_size() - 1))) = value;
+        tlb.write32(addr & (tlb.get_size() - 1), value);
     }
 
     static void noc_read(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr, void* dst, size_t len)

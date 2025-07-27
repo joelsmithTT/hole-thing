@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 
+using namespace tt;
+
 // Pasted from tt-zephyr-platforms telemetry.h
 #define TAG_BOARD_ID_HIGH        1
 #define TAG_BOARD_ID_LOW         2
@@ -142,11 +144,10 @@ int main()
         }
     }
 
-    for (auto device_path : tt::DeviceUtils::enumerate_devices()) {
-        tt::Device device(device_path.c_str());
-        // if (device.is_blackhole()) continue;
+    for (auto device_path : DeviceUtils::enumerate_devices()) {
+        Device device(device_path.c_str());
 
-        tt::DeviceUtils::print_device_info(device);
+        DeviceUtils::print_device_info(device);
 
         for (const auto& tag_entry : telemetry_tags) {
             uint32_t value = device.read_telemetry(tag_entry.id);

@@ -25,76 +25,7 @@
 
 namespace tt {
 
-class DmaBuffer
-{
-    tt_device_t* device;
-    tt_dma_t* dma;
-    void* mem;
-    size_t len;
-    uint64_t iova;
-    uint64_t noc_addr;
-
-public:
-    DmaBuffer(tt_device_t* device, size_t len)
-        : device(device)
-        , mem(MAP_FAILED)
-        , len(len)
-        , iova(~0ULL)
-        , noc_addr(~0ULL)
-    {
-        if (len % getpagesize() != 0) {
-            throw std::invalid_argument("Buffer size must be a multiple of page size");
-        }
-
-        if (len % (1ULL << 30) == 0) {
-            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_1GB, -1, 0);
-        }
-
-        if (mem == MAP_FAILED && (len % (1ULL << 21) == 0)) {
-            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, 0);
-        }
-
-        if (mem == MAP_FAILED) {
-            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        }
-
-        if (mem == MAP_FAILED) {
-            throw std::system_error(errno, std::generic_category(), "Failed to allocate DMA buffer");
-        }
-
-        int r = tt_dma_map(device, mem, len, TT_DMA_FLAG_NOC, &dma);
-        if (r) {
-            munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to map DMA buffer");
-        }
-
-        r = tt_dma_get_dma_addr(dma, &iova);
-        if (r) {
-            tt_dma_unmap(device, dma);
-            munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to get DMA address");
-        }
-
-        r = tt_dma_get_noc_addr(dma, &noc_addr);
-        if (r) {
-            tt_dma_unmap(device, dma);
-            munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to get NOC address");
-        }
-    }
-
-    void* get_mem() { return mem; }
-    uint64_t get_iova() const { return iova; }
-    uint64_t get_noc_addr() const { return noc_addr; }
-    size_t get_len() const { return len; }
-
-    ~DmaBuffer()
-    {
-        munmap(mem, len);
-        tt_dma_unmap(device, dma);
-    }
-};
-
+// Supports Wormhole and Blackhole architectures.
 class Device
 {
     tt_device_t* device{nullptr};
@@ -125,47 +56,27 @@ public:
             throw std::runtime_error("Driver version is too old");
         }
 
-
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_VENDOR_ID, &vendor_id);
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_DEVICE_ID, &device_id);
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_DOMAIN, &pci_domain);
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_BUS, &pci_bus);
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_DEVICE, &pci_device);
         tt_device_get_attr(device, TT_DEVICE_ATTR_PCI_FUNCTION, &pci_function);
-
     }
 
     tt_device_t* handle() const { return device; }
+
     bool is_wormhole() const { return device_arch == TT_DEVICE_ARCH_WORMHOLE; }
     bool is_blackhole() const { return device_arch == TT_DEVICE_ARCH_BLACKHOLE; }
 
     std::string get_path() const { return path; }
-    uint16_t get_vendor_id() const { return static_cast<uint16_t>(vendor_id); }
-    uint16_t get_device_id() const { return static_cast<uint16_t>(device_id); }
+
+    uint64_t get_vendor_id() const { return vendor_id; }
+    uint64_t get_device_id() const { return device_id; }
     uint64_t get_pci_domain() const { return pci_domain; }
     uint64_t get_pci_bus() const { return pci_bus; }
     uint64_t get_pci_device() const { return pci_device; }
     uint64_t get_pci_function() const { return pci_function; }
-
-    std::pair<uint16_t, uint16_t> get_pcie_coordinates() const
-    {
-        if (is_wormhole()) {
-            return {0, 3};
-        } else if (is_blackhole()) {
-            return {19, 24};
-        }
-        return {-1, -1};
-    }
-
-    std::pair<uint16_t, uint16_t> get_noc_grid_size() const
-    {
-        if (is_wormhole()) {
-            return {10, 12};
-        } else if (is_blackhole()) {
-            return {17, 12};
-        }
-        return {-1, -1};
-    }
 
     uint32_t noc_read32(uint16_t x, uint16_t y, uint64_t addr)
     {
@@ -203,20 +114,18 @@ public:
 
     uint32_t read_telemetry(uint32_t tag)
     {
-        if (is_wormhole()) {
-            return ~0U;
-        }
-
-        static constexpr auto SCRATCH_RAM = [](int N){ return 0x80030400 + (N * 4); };
-        static constexpr uint64_t ARC_TELEMETRY_PTR = SCRATCH_RAM(13);
-        static constexpr uint64_t ARC_TELEMETRY_DATA = SCRATCH_RAM(12);
-        static constexpr uint32_t ARC_X = 8;
-        static constexpr uint32_t ARC_Y = 0;
+        auto [ARC_X, ARC_Y] = get_arc_coordinates();
+        auto [ARC_TELEMETRY_PTR, ARC_TELEMETRY_DATA] = get_telemetry_pointers();
 
         uint64_t base_addr = noc_read32(ARC_X, ARC_Y, ARC_TELEMETRY_PTR);
         uint64_t data_addr = noc_read32(ARC_X, ARC_Y, ARC_TELEMETRY_DATA);
-        uint32_t num_entries = noc_read32(ARC_X, ARC_Y, base_addr + 4);
 
+        if (is_wormhole()) {
+            base_addr |= 0x8'0000'0000ULL;
+            data_addr |= 0x8'0000'0000ULL;
+        }
+
+        uint32_t num_entries = noc_read32(ARC_X, ARC_Y, base_addr + 4);
         for (uint32_t i = 0; i < num_entries; ++i) {
             uint32_t tag_entry = noc_read32(ARC_X, ARC_Y, base_addr + 8 + (i * 4));
             uint16_t tag_id = tag_entry & 0xFFFF;
@@ -231,38 +140,311 @@ public:
         return ~0U; // Not found
     }
 
+    std::pair<uint16_t, uint16_t> get_pcie_coordinates() const
+    {
+        if (is_wormhole()) {
+            return {0, 3};
+        } else if (is_blackhole()) {
+            return {19, 24};
+        }
+        throw std::runtime_error("Unknown device architecture");
+        return {-1, -1};
+    }
+
+    std::pair<uint16_t, uint16_t> get_arc_coordinates() const
+    {
+        if (is_wormhole()) {
+            return {0, 10};
+        } else if (is_blackhole()) {
+            return {8, 0};
+        }
+        throw std::runtime_error("Unknown device architecture");
+        return {-1, -1};
+    }
+
+    std::pair<uint16_t, uint16_t> get_noc_grid_size() const
+    {
+        if (is_wormhole()) {
+            return {10, 12};
+        } else if (is_blackhole()) {
+            return {17, 12};
+        }
+        throw std::runtime_error("Unknown device architecture");
+        return {-1, -1};
+    }
+
+    std::pair<uint64_t, uint64_t> get_telemetry_pointers() const
+    {
+        if (is_wormhole()) {
+            return {0x8'8003'01D0ULL, 0x8'8003'01D4ULL};
+        } else if (is_blackhole()) {
+            return {0x0'8003'0434ULL, 0x0'8003'0430ULL};
+        }
+        throw std::runtime_error("Unknown device architecture");
+        return {~0ULL, ~0ULL};
+    }
+
     ~Device()
     {
         tt_device_close(device);
     }
+
+private:
+    Device(const Device&) = delete;
+    Device& operator=(const Device&) = delete;
+    Device(Device&&) = delete;
+    Device& operator=(Device&&) = delete;
 };
 
-static inline std::vector<std::string> enumerate_devices()
+class DeviceUtils
 {
-    std::vector<std::string> devices;
-    for (const auto& entry : std::filesystem::directory_iterator("/dev/tenstorrent/")) {
-        if (std::filesystem::is_character_file(entry.path()) || std::filesystem::is_block_file(entry.path())) {
-            devices.push_back(entry.path().string());
+public:
+    static inline std::vector<std::string> enumerate_devices()
+    {
+        std::vector<std::string> devices;
+        for (const auto& entry : std::filesystem::directory_iterator("/dev/tenstorrent/")) {
+            if (std::filesystem::is_character_file(entry.path()) || std::filesystem::is_block_file(entry.path())) {
+                devices.push_back(entry.path().string());
+            }
+        }
+
+        std::sort(devices.begin(), devices.end());
+        return devices;
+    }
+
+    static inline void print_device_info(const tt::Device& device)
+    {
+        std::cout << "--- Device: " << device.get_path()
+                << (device.is_blackhole() ? " (Blackhole)" : "")
+                << (device.is_wormhole() ? " (Wormhole)" : "");
+
+        std::cout << "  PCI: " << std::hex << std::setfill('0')
+                << std::setw(4) << device.get_pci_domain()   << ":"
+                << std::setw(2) << device.get_pci_bus()      << ":"
+                << std::setw(2) << device.get_pci_device()   << "."
+                << std::setw(1) << device.get_pci_function() << std::dec
+                << " ---" << std::endl;
+    }
+};
+
+// TlbWindow is a mapping to the device NOC.
+class TlbWindow
+{
+    Device& device;
+    size_t size;
+    tt_tlb_t* tlb{nullptr};
+
+public:
+    TlbWindow(Device& device, size_t size, enum tt_tlb_cache_mode cache = TT_MMIO_CACHE_MODE_UC)
+        : device(device)
+        , size(size)
+    {
+        int r = tt_tlb_alloc(device.handle(), size, cache, &tlb);
+        if (r) {
+            throw std::system_error(r, std::generic_category(), "Failed to open TLB window");
+        }
+
+    }
+
+    size_t get_size() const { return size; }
+
+    void* get_mmio() const
+    {
+        void* mmio;
+        int r = tt_tlb_get_mmio(tlb, &mmio);
+        if (r) {
+            throw std::system_error(r, std::generic_category(), "Failed to get TLB MMIO");
+        }
+        return mmio;
+    }
+
+    // Address must be aligned to the TLB size to map.
+    void map(uint8_t x, uint8_t y, uint64_t addr)
+    {
+        int r = tt_tlb_map_unicast(device.handle(), tlb, x, y, addr);
+        if (r) {
+            throw std::system_error(r, std::generic_category(), "Failed to map TLB window");
         }
     }
 
-    std::sort(devices.begin(), devices.end());
-    return devices;
-}
+    void map(uint8_t start_x, uint8_t start_y, uint8_t end_x, uint8_t end_y, uint64_t addr,
+             bool multicast = false, uint8_t ordering = 0, bool static_vc = false)
+    {
+        tt_noc_addr_config_t config = {};
+        config.addr = addr;
+        config.x_start = start_x;
+        config.y_start = start_y;
+        config.x_end = end_x;
+        config.y_end = end_y;
+        config.noc = 0; // NOC0
+        config.mcast = multicast ? 1 : 0;
+        config.ordering = ordering;
+        config.static_vc = static_vc ? 1 : 0;
 
-static inline void print_device_info(const tt::Device& device)
+        int r = tt_tlb_map(device.handle(), tlb, &config);
+        if (r) {
+            throw std::system_error(r, std::generic_category(), "Failed to map TLB window");
+        }
+    }
+
+    ~TlbWindow()
+    {
+        tt_tlb_free(device.handle(), tlb);
+    }
+
+private:
+    TlbWindow(const TlbWindow&) = delete;
+    TlbWindow& operator=(const TlbWindow&) = delete;
+    TlbWindow(TlbWindow&&) = delete;
+    TlbWindow& operator=(TlbWindow&&) = delete;
+};
+
+class TlbWindowUtils
 {
-    std::cout << "--- Device: " << device.get_path()
-            << (device.is_blackhole() ? " (Blackhole)" : "")
-            << (device.is_wormhole() ? " (Wormhole)" : "");
+public:
+    static inline uint32_t noc_read32(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr)
+    {
+        if (addr % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
 
-    std::cout << "  PCI: " << std::hex << std::setfill('0')
-            << std::setw(4) << device.get_pci_domain()   << ":"
-            << std::setw(2) << device.get_pci_bus()      << ":"
-            << std::setw(2) << device.get_pci_device()   << "."
-            << std::setw(1) << device.get_pci_function() << std::dec
-            << " ---" << std::endl;
-}
+        tlb.map(x, y, addr & ~(tlb.get_size() - 1));
+        return *(volatile uint32_t*)((uint8_t*)tlb.get_mmio() + (addr & (tlb.get_size() - 1)));
+    }
+
+    static void noc_write32(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr, uint32_t value)
+    {
+        if (addr % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
+
+        tlb.map(x, y, addr & ~(tlb.get_size() - 1));
+        *(volatile uint32_t*)((uint8_t*)tlb.get_mmio() + (addr & (tlb.get_size() - 1))) = value;
+    }
+
+    static void noc_read(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr, void* dst, size_t len)
+    {
+        if (addr % 4 != 0 || len % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
+
+        uint8_t* dst_ptr = (uint8_t*)dst;
+
+        while (len > 0) {
+            uint64_t aligned_addr = addr & ~(tlb.get_size() - 1);
+            uint64_t offset = addr & (tlb.get_size() - 1);
+            size_t chunk_size = std::min(len, tlb.get_size() - offset);
+            uint8_t* src_ptr = (uint8_t*)tlb.get_mmio() + offset;
+
+            tlb.map(x, y, aligned_addr);
+            memcpy(dst_ptr, src_ptr, chunk_size);
+
+            dst_ptr += chunk_size;
+            len -= chunk_size;
+            addr += chunk_size;
+        }
+    }
+
+    static void noc_write(TlbWindow& tlb, uint8_t x, uint8_t y, uint64_t addr, const void* src, size_t len)
+    {
+        if (addr % 4 != 0 || len % 4 != 0) {
+            throw std::invalid_argument("Misaligned");
+        }
+
+        const uint8_t* src_ptr = (const uint8_t*)src;
+
+        while (len > 0) {
+            uint64_t aligned_addr = addr & ~(tlb.get_size() - 1);
+            uint64_t offset = addr & (tlb.get_size() - 1);
+            size_t chunk_size = std::min(len, tlb.get_size() - offset);
+            uint8_t* dst_ptr = (uint8_t*)tlb.get_mmio() + offset;
+
+            tlb.map(x, y, aligned_addr);
+            memcpy(dst_ptr, src_ptr, chunk_size);
+
+            src_ptr += chunk_size;
+            len -= chunk_size;
+            addr += chunk_size;
+        }
+    }
+};
+
+class DmaBuffer
+{
+    Device& device;
+    tt_dma_t* dma;
+    void* mem;
+    size_t len;
+    uint64_t iova;
+    uint64_t noc_addr;
+
+public:
+    DmaBuffer(Device& device, size_t len, int flags = TT_DMA_FLAG_NOC)
+        : device(device)
+        , mem(MAP_FAILED)
+        , len(len)
+        , iova(~0ULL)
+        , noc_addr(~0ULL)
+    {
+        if (len % getpagesize() != 0) {
+            throw std::invalid_argument("Buffer size must be a multiple of page size");
+        }
+
+        if (len % (1ULL << 30) == 0) {
+            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_1GB, -1, 0);
+        }
+
+        if (mem == MAP_FAILED && (len % (1ULL << 21) == 0)) {
+            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, 0);
+        }
+
+        if (mem == MAP_FAILED) {
+            mem = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        }
+
+        if (mem == MAP_FAILED) {
+            throw std::system_error(errno, std::generic_category(), "Failed to allocate DMA buffer");
+        }
+
+        int r = tt_dma_map(device.handle(), mem, len, flags, &dma);
+        if (r) {
+            munmap(mem, len);
+            throw std::system_error(r, std::generic_category(), "Failed to map DMA buffer");
+        }
+
+        r = tt_dma_get_dma_addr(dma, &iova);
+        if (r) {
+            tt_dma_unmap(device.handle(), dma);
+            munmap(mem, len);
+            throw std::system_error(r, std::generic_category(), "Failed to get DMA address");
+        }
+
+        r = tt_dma_get_noc_addr(dma, &noc_addr);
+        if ((flags & (TT_DMA_FLAG_NOC | TT_DMA_FLAG_NOC_TOP_DOWN)) && r) {
+            tt_dma_unmap(device.handle(), dma);
+            munmap(mem, len);
+            throw std::system_error(r, std::generic_category(), "Failed to get NOC address");
+        }
+    }
+
+    void* get_mem() { return mem; }
+    uint64_t get_iova() const { return iova; }
+    uint64_t get_noc_addr() const { return noc_addr; }
+    size_t get_len() const { return len; }
+
+    ~DmaBuffer()
+    {
+        munmap(mem, len);
+        tt_dma_unmap(device.handle(), dma);
+    }
+
+private:
+    DmaBuffer(const DmaBuffer&) = delete;
+    DmaBuffer& operator=(const DmaBuffer&) = delete;
+    DmaBuffer(DmaBuffer&&) = delete;
+    DmaBuffer& operator=(DmaBuffer&&) = delete;
+};
+
 
 
 } // namespace tt

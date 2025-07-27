@@ -36,6 +36,42 @@ void blackhole_noc_sanity_check(tt::Device& device)
     printf("Blackhole NOC sanity test PASSED\n");
 }
 
+void blackhole_noc_sanity_check2(tt::Device& device)
+{
+    static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
+
+    if (!device.is_blackhole())
+        return;
+
+    auto is_tensix_bh = [](uint32_t x, uint32_t y) -> bool {
+        return (y >= 2 && y <= 11) &&   // Valid y range
+            ((x >= 1 && x <= 7) ||      // Left block
+            (x >= 10 && x <= 16));      // Right block
+    };
+
+    auto [size_x, size_y] = device.get_noc_grid_size();
+    for (uint32_t x = 0; x < size_x; ++x) {
+        for (uint32_t y = 0; y < size_y; ++y) {
+
+            if (!is_tensix_bh(x, y))
+                continue;
+
+            tt::TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
+            uint32_t node_id = tt::TlbWindowUtils::noc_read32(tlb, x, y, NOC_NODE_ID_LOGICAL);
+
+            // uint32_t node_id = device.noc_read32(x, y, NOC_NODE_ID_LOGICAL);
+            uint32_t node_id_x = (node_id >> 0x0) & 0x3f;
+            uint32_t node_id_y = (node_id >> 0x6) & 0x3f;
+
+            if (node_id_x != x || node_id_y != y) {
+                printf("Node ID mismatch, expected (%u, %u), got (%u, %u)\n", x, y, node_id_x, node_id_y);
+                exit(1);
+            }
+        }
+    }
+    printf("Blackhole NOC sanity test PASSED\n");
+}
+
 void wormhole_noc_sanity_check(tt::Device& device)
 {
     if (!device.is_wormhole())
@@ -120,7 +156,7 @@ void fill_with_random_data(void* ptr, size_t bytes)
 void test_noc_dma(tt::Device& device, size_t magnitude)
 {
     size_t buffer_size = 1ULL << magnitude;
-    tt::DmaBuffer buffer(device.handle(), buffer_size);
+    tt::DmaBuffer buffer(device, buffer_size);
     uint8_t* data = (uint8_t*)buffer.get_mem();
     uint64_t noc_addr = buffer.get_noc_addr();
 
@@ -129,6 +165,28 @@ void test_noc_dma(tt::Device& device, size_t magnitude)
 
     auto [x, y] = device.get_pcie_coordinates();
     device.noc_write(x, y, noc_addr, pattern.data(), buffer_size);
+
+    if (memcmp(data, pattern.data(), buffer_size) != 0) {
+        printf("Data mismatch\n");
+        return;
+    }
+
+    printf("NOC DMA test PASSED (size=0x%lx)\n", buffer_size);
+}
+
+void test_noc_dma2(tt::Device& device, size_t magnitude)
+{
+    size_t buffer_size = 1ULL << magnitude;
+    tt::DmaBuffer buffer(device, buffer_size);
+    uint8_t* data = (uint8_t*)buffer.get_mem();
+    uint64_t noc_addr = buffer.get_noc_addr();
+
+    std::vector<uint8_t> pattern(buffer_size);
+    fill_with_random_data(pattern.data(), buffer_size);
+
+    auto [x, y] = device.get_pcie_coordinates();
+    tt::TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_WC);
+    tt::TlbWindowUtils::noc_write(tlb, x, y, noc_addr, pattern.data(), buffer_size);
 
     if (memcmp(data, pattern.data(), buffer_size) != 0) {
         printf("Data mismatch\n");
@@ -156,6 +214,7 @@ void test_telemetry(tt::Device& device)
 void run_tests(tt::Device& device)
 {
     blackhole_noc_sanity_check(device);
+    blackhole_noc_sanity_check2(device);
     wormhole_noc_sanity_check(device);
 
     test_telemetry(device);
@@ -163,14 +222,17 @@ void run_tests(tt::Device& device)
     test_noc_dma(device, 21);
     test_noc_dma(device, 28);
     test_noc_dma(device, 30);
+    test_noc_dma2(device, 21);
+    test_noc_dma2(device, 28);
+    test_noc_dma2(device, 30);
 }
 
 int main()
 {
-    for (auto device_path : tt::enumerate_devices()) {
+    for (auto device_path : tt::DeviceUtils::enumerate_devices()) {
         tt::Device device(device_path.c_str());
 
-        tt::print_device_info(device);
+        tt::DeviceUtils::print_device_info(device);
         run_tests(device);
     }
 

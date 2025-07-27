@@ -6,7 +6,9 @@ SRC_DIR := src
 
 TARGETS := \
 	$(BIN_DIR)/ttkmd_test \
-	$(BIN_DIR)/telemetry
+	$(BIN_DIR)/telemetry \
+	$(BIN_DIR)/pin_pages \
+	$(BIN_DIR)/use_tlbs
 
 HEADERS := $(wildcard include/*.hpp)
 

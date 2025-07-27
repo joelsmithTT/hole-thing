@@ -142,14 +142,11 @@ int main()
         }
     }
 
-    for (auto device_path : tt::enumerate_devices()) {
+    for (auto device_path : tt::DeviceUtils::enumerate_devices()) {
         tt::Device device(device_path.c_str());
+        // if (device.is_blackhole()) continue;
 
-        tt::print_device_info(device);
-
-        if (device.is_wormhole()) {
-            continue; // Skip Wormhole devices for now
-        }
+        tt::DeviceUtils::print_device_info(device);
 
         for (const auto& tag_entry : telemetry_tags) {
             uint32_t value = device.read_telemetry(tag_entry.id);

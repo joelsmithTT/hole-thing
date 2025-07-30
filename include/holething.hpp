@@ -46,7 +46,7 @@ public:
 
         int r = tt_device_open(chardev_path, &device);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to open device");
+            throw std::system_error(-r, std::generic_category(), "Failed to open device");
         }
 
         tt_driver_get_attr(device, TT_DRIVER_API_VERSION, &driver_version);
@@ -83,7 +83,7 @@ public:
         uint32_t value;
         int r = tt_noc_read32(device, x, y, addr, &value);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to read NOC address");
+            throw std::system_error(-r, std::generic_category(), "Failed to read NOC address");
         }
         return value;
     }
@@ -92,7 +92,7 @@ public:
     {
         int r = tt_noc_write32(device, x, y, addr, value);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to write NOC address");
+            throw std::system_error(-r, std::generic_category(), "Failed to write NOC address");
         }
     }
 
@@ -100,7 +100,7 @@ public:
     {
         int r = tt_noc_write(device, x, y, addr, src, size);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to write NOC address");
+            throw std::system_error(-r, std::generic_category(), "Failed to write NOC address");
         }
     }
 
@@ -108,7 +108,7 @@ public:
     {
         int r = tt_noc_read(device, x, y, addr, dst, size);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to read NOC address");
+            throw std::system_error(-r, std::generic_category(), "Failed to read NOC address");
         }
     }
 
@@ -241,7 +241,7 @@ public:
     {
         int r = tt_tlb_alloc(device.handle(), size, cache, &tlb);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to open TLB window");
+            throw std::system_error(-r, std::generic_category(), "Failed to open TLB window");
         }
     }
 
@@ -252,7 +252,7 @@ public:
         void* mmio;
         int r = tt_tlb_get_mmio(tlb, &mmio);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to get TLB MMIO");
+            throw std::system_error(-r, std::generic_category(), "Failed to get TLB MMIO");
         }
         return mmio;
     }
@@ -262,7 +262,7 @@ public:
     {
         int r = tt_tlb_map_unicast(device.handle(), tlb, x, y, addr);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to map TLB window");
+            throw std::system_error(-r, std::generic_category(), "Failed to map TLB window");
         }
     }
 
@@ -282,7 +282,7 @@ public:
 
         int r = tt_tlb_map(device.handle(), tlb, &config);
         if (r) {
-            throw std::system_error(r, std::generic_category(), "Failed to map TLB window");
+            throw std::system_error(-r, std::generic_category(), "Failed to map TLB window");
         }
     }
 
@@ -426,21 +426,21 @@ public:
         int r = tt_dma_map(device.handle(), mem, len, flags, &dma);
         if (r) {
             munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to map DMA buffer");
+            throw std::system_error(-r, std::generic_category(), "Failed to map DMA buffer");
         }
 
         r = tt_dma_get_dma_addr(dma, &iova);
         if (r) {
             tt_dma_unmap(device.handle(), dma);
             munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to get DMA address");
+            throw std::system_error(-r, std::generic_category(), "Failed to get DMA address");
         }
 
         r = tt_dma_get_noc_addr(dma, &noc_addr);
         if ((flags & (TT_DMA_FLAG_NOC | TT_DMA_FLAG_NOC_TOP_DOWN)) && r) {
             tt_dma_unmap(device.handle(), dma);
             munmap(mem, len);
-            throw std::system_error(r, std::generic_category(), "Failed to get NOC address");
+            throw std::system_error(-r, std::generic_category(), "Failed to get NOC address");
         }
     }
 

@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -I./include -I/usr/include/tenstorrent -Wall -Wextra -std=c++17
+CXXFLAGS := -I./include -I/usr/include/tenstorrent -Wall -Wextra -std=c++17 -g
 LDFLAGS := -L/usr/local/lib -lttkmd
 BIN_DIR := bin
 SRC_DIR := src
@@ -8,7 +8,8 @@ TARGETS := \
 	$(BIN_DIR)/ttkmd_test \
 	$(BIN_DIR)/telemetry \
 	$(BIN_DIR)/pin_pages \
-	$(BIN_DIR)/use_tlbs
+	$(BIN_DIR)/use_tlbs \
+	$(BIN_DIR)/hang_the_noc \
 
 HEADERS := $(wildcard include/*.hpp)
 

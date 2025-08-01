@@ -15,8 +15,12 @@ int main()
         TlbWindow tlb3(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
         TlbWindow tlb4(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
 
+        tlb1.map(0, 0, 0x0);
+
         int x;
         std::cin >> x;
+
+        tlb1.read32(0);
     }
     return 0;
 }

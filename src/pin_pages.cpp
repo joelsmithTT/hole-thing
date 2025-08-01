@@ -9,7 +9,7 @@ using namespace tt;
 int main()
 {
     for (auto device_path : DeviceUtils::enumerate_devices()) {
-        const size_t size = 0x1000 + (18ULL * (1ULL << 30));
+        const size_t size = 0x1000 + (1ULL * (1ULL << 30));
         Device device(device_path.c_str());
 
         if (device.is_wormhole()) {
@@ -70,6 +70,8 @@ int main()
                 return 1;
             }
         }
+        std::cin >> x;
+        tlb2.read32(0);
     }
     return 0;
 }

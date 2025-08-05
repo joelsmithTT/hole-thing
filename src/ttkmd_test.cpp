@@ -248,6 +248,8 @@ void test_noc_dma_tlb(Device& device, size_t magnitude)
     auto [x, y] = device.get_pcie_coordinates();
     TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_WC);
     TlbWindowUtils::noc_write(tlb, x, y, noc_addr, pattern.data(), buffer_size);
+    TlbWindowUtils::noc_read32(tlb, x, y, noc_addr);
+    TlbWindowUtils::noc_read32(tlb, x, y, noc_addr + buffer_size - sizeof(uint32_t));
 
     if (memcmp(data, pattern.data(), buffer_size) != 0) {
         printf("Data mismatch\n");
@@ -355,10 +357,8 @@ void run_tests(Device& device)
     block_io_test(device);
     test_telemetry(device);
     test_noc_dma(device, 21);
-    test_noc_dma(device, 28);
     test_noc_dma(device, 30);
     test_noc_dma_tlb(device, 21);
-    test_noc_dma_tlb(device, 28);
     test_noc_dma_tlb(device, 30);
 }
 

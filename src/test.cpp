@@ -5,12 +5,12 @@
 
 using namespace tt;
 
-void blackhole_noc_sanity_check(Device& device)
+int blackhole_noc_sanity_check(Device& device)
 {
     static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
 
     if (!device.is_blackhole())
-        return;
+        return -1;
 
     auto is_tensix_bh = [](uint32_t x, uint32_t y) -> bool {
         return (y >= 2 && y <= 11) &&   // Valid y range
@@ -31,17 +31,18 @@ void blackhole_noc_sanity_check(Device& device)
 
             if (node_id_x != x || node_id_y != y) {
                 printf("Node ID mismatch, expected (%u, %u), got (%u, %u)\n", x, y, node_id_x, node_id_y);
-                exit(1);
+                return -1;
             }
         }
     }
     printf("Blackhole NOC sanity test 1/2 PASSED\n");
+    return 0;
 }
 
-void wormhole_noc_sanity_check(Device& device)
+int wormhole_noc_sanity_check(Device& device)
 {
     if (!device.is_wormhole())
-        return;
+        return -1;
 
     {
         constexpr uint32_t ARC_X = 0;
@@ -53,7 +54,7 @@ void wormhole_noc_sanity_check(Device& device)
         auto y = (node_id >> 0x6) & 0x3f;
         if (x != ARC_X || y != ARC_Y) {
             printf("ARC node ID mismatch, expected (%u, %u), got (%u, %u)\n", ARC_X, ARC_Y, x, y);
-            exit(1);
+            return -1;
         }
     }
 
@@ -67,7 +68,7 @@ void wormhole_noc_sanity_check(Device& device)
         auto y = (node_id >> 0x6) & 0x3f;
         if (x != DDR_X || y != DDR_Y) {
             printf("DDR node ID mismatch, expected (%u, %u), got (%u, %u)\n", DDR_X, DDR_Y, x, y);
-            exit(1);
+            return -1;
         }
     }
 
@@ -87,11 +88,25 @@ void wormhole_noc_sanity_check(Device& device)
 
             if (node_id_x != x || node_id_y != y) {
                 printf("Expected x: %u, y: %u, got x: %u, y: %u\n", x, y, node_id_x, node_id_y);
+                return -1;
             }
         }
     }
 
     printf("Wormhole NOC sanity test PASSED\n");
+    return 0;
+}
+
+int noc_sanity_check(Device& device)
+{
+    if (device.is_wormhole()) {
+        return wormhole_noc_sanity_check(device);
+    } else if (device.is_blackhole()) {
+        return blackhole_noc_sanity_check(device);
+    } else {
+        printf("Unknown device type for NOC sanity check\n");
+        return -1;
+    }
 }
 
 void fill_with_random_data(void* ptr, size_t bytes)
@@ -119,7 +134,7 @@ void fill_with_random_data(void* ptr, size_t bytes)
     }
 }
 
-void test_noc_dma(Device& device, DmaBuffer& buffer)
+int test_noc_dma(Device& device, DmaBuffer& buffer)
 {
     uint8_t* data = (uint8_t*)buffer.get_mem();
     uint64_t noc_addr = buffer.get_noc_addr();
@@ -135,13 +150,14 @@ void test_noc_dma(Device& device, DmaBuffer& buffer)
 
     if (memcmp(data, pattern.data(), len) != 0) {
         printf("NOC DMA test FAILED (size=0x%lx)\n", len);
-        return;
+        return -1;
     }
 
     printf("NOC DMA test PASSED (size=0x%lx)\n", len);
+    return 0;
 }
 
-void test_noc_dma(Device& device, size_t magnitude)
+int test_noc_dma(Device& device, size_t magnitude)
 {
     size_t buffer_size = 1ULL << magnitude;
     DmaBuffer* buffer;
@@ -153,11 +169,12 @@ void test_noc_dma(Device& device, size_t magnitude)
         // echo 1 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
         // echo 1 | sudo tee /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
         // remove `iommu=pt` or any e.g. `intel_iommu=off` from kernel command line and reboot
-        return;
+        return 0; // Skipped but not failed
     }
 
-    test_noc_dma(device, *buffer);
+    int r = test_noc_dma(device, *buffer);
     delete buffer;
+    return r;
 }
 
 void test_telemetry(Device& device)
@@ -249,25 +266,33 @@ void block_io_test(Device& dev)
 }
 
 
-void run_tests(Device& device)
+int run_tests(Device& device)
 {
-    wormhole_noc_sanity_check(device);  // Ignores Blackhole devices
-    blackhole_noc_sanity_check(device); // Ignores Wormhole devices
-    test_noc_dma(device, 12);           // 4096 KiB DMA test
-    return;
+    // Can we access NOC registers correctly?
+    if (noc_sanity_check(device) != 0) {
+        printf("NOC sanity check FAILED\n");
+        return -1;
+    }
 
-    // These are skipped because...
-//  block_io_test(device);              // Writes to DDR and reads back
-    // ... DDR takes too long to train on 6U WH, so we might not be able to touch it yet.
-    
-//  test_telemetry(device);             // Reads telemetry table
-    // ... because DDR takes too long to train, FW might not be ready with telemetry yet.
+    // 4096 KiB DMA test
+    if (test_noc_dma(device, 12) != 0) {
+        return -1;
+    }
+    return 0;
 
-//  test_noc_dma(device, 21);           // 2 MiB DMA test
+#if 0 // Skip these for now.
+    // Skipped becase DDR takes too long to train on 6U WH, so we might not be able to touch it yet.
+    block_io_test(device);              // Writes to DDR and reads back
+
+    // Skipped because DDR takes too long to train, FW might not be ready with telemetry yet.
+    test_telemetry(device);             // Reads telemetry table
+
     // ... because no IOMMU, no 2 MiB pages = fail
-    
-//  test_noc_dma(device, 30);           // 1 GiB DMA test
+    test_noc_dma(device, 21);           // 2 MiB DMA test
+
     // ... because it takes too long
+    test_noc_dma(device, 30);           // 1 GiB DMA test
+#endif
 }
 
 int run(std::string device_path)
@@ -275,7 +300,7 @@ int run(std::string device_path)
     try {
         Device device(device_path.c_str());
         DeviceUtils::print_device_info(device);
-        run_tests(device);
+        return run_tests(device);
     } catch (const std::runtime_error& e) {
         fprintf(stderr, "Error accessing device %s: %s\n", device_path.c_str(), e.what());
         return 1; // Indicate failure

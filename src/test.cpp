@@ -38,42 +38,6 @@ void blackhole_noc_sanity_check(Device& device)
     printf("Blackhole NOC sanity test 1/2 PASSED\n");
 }
 
-void blackhole_noc_sanity_check_tlb(Device& device)
-{
-    static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
-
-    if (!device.is_blackhole())
-        return;
-
-    auto is_tensix_bh = [](uint32_t x, uint32_t y) -> bool {
-        return (y >= 2 && y <= 11) &&   // Valid y range
-            ((x >= 1 && x <= 7) ||      // Left block
-            (x >= 10 && x <= 16));      // Right block
-    };
-
-    auto [size_x, size_y] = device.get_noc_grid_size();
-    for (uint32_t x = 0; x < size_x; ++x) {
-        for (uint32_t y = 0; y < size_y; ++y) {
-
-            if (!is_tensix_bh(x, y))
-                continue;
-
-            TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
-            uint32_t node_id = TlbWindowUtils::noc_read32(tlb, x, y, NOC_NODE_ID_LOGICAL);
-
-            // uint32_t node_id = device.noc_read32(x, y, NOC_NODE_ID_LOGICAL);
-            uint32_t node_id_x = (node_id >> 0x0) & 0x3f;
-            uint32_t node_id_y = (node_id >> 0x6) & 0x3f;
-
-            if (node_id_x != x || node_id_y != y) {
-                printf("Node ID mismatch, expected (%u, %u), got (%u, %u)\n", x, y, node_id_x, node_id_y);
-                exit(1);
-            }
-        }
-    }
-    printf("Blackhole NOC sanity test 2/2 PASSED\n");
-}
-
 void wormhole_noc_sanity_check(Device& device)
 {
     if (!device.is_wormhole())
@@ -130,65 +94,6 @@ void wormhole_noc_sanity_check(Device& device)
     printf("Wormhole NOC sanity test PASSED\n");
 }
 
-void wormhole_noc_sanity_check_tlb(Device& device)
-{
-    if (!device.is_wormhole())
-        return;
-
-    TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
-
-    {
-        constexpr uint32_t ARC_X = 0;
-        constexpr uint32_t ARC_Y = 10;
-        constexpr uint64_t ARC_NOC_NODE_ID = 0xFFFB2002CULL;
-
-        auto node_id = TlbWindowUtils::noc_read32(tlb, ARC_X, ARC_Y, ARC_NOC_NODE_ID);
-        auto x = (node_id >> 0x0) & 0x3f;
-        auto y = (node_id >> 0x6) & 0x3f;
-        if (x != ARC_X || y != ARC_Y) {
-            printf("ARC node ID mismatch, expected (%u, %u), got (%u, %u)\n", ARC_X, ARC_Y, x, y);
-            exit(1);
-        }
-    }
-
-    {
-        constexpr uint32_t DDR_X = 0;
-        constexpr uint32_t DDR_Y = 11;
-        constexpr uint64_t DDR_NOC_NODE_ID = 0x10009002CULL;
-        TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
-
-        auto node_id = TlbWindowUtils::noc_read32(tlb, DDR_X, DDR_Y, DDR_NOC_NODE_ID);
-        auto x = (node_id >> 0x0) & 0x3f;
-        auto y = (node_id >> 0x6) & 0x3f;
-        if (x != DDR_X || y != DDR_Y) {
-            printf("DDR node ID mismatch, expected (%u, %u), got (%u, %u)\n", DDR_X, DDR_Y, x, y);
-            exit(1);
-        }
-    }
-
-    constexpr uint64_t TENSIX_NOC_NODE_ID = 0xffb2002cULL;
-    auto is_tensix_wh = [](uint32_t x, uint32_t y) -> bool {
-        return (((y != 6) && (y >= 1) && (y <= 11)) && // valid Y
-                ((x != 5) && (x >= 1) && (x <= 9)));   // valid X
-    };
-    for (uint32_t x = 0; x < 12; ++x) {
-        for (uint32_t y = 0; y < 12; ++y) {
-            if (!is_tensix_wh(x, y)) {
-                continue;
-            }
-            auto node_id = TlbWindowUtils::noc_read32(tlb, x, y, TENSIX_NOC_NODE_ID);
-            auto node_id_x = (node_id >> 0x0) & 0x3f;
-            auto node_id_y = (node_id >> 0x6) & 0x3f;
-
-            if (node_id_x != x || node_id_y != y) {
-                printf("Expected x: %u, y: %u, got x: %u, y: %u\n", x, y, node_id_x, node_id_y);
-            }
-        }
-    }
-
-    printf("Wormhole NOC sanity test PASSED\n");
-}
-
 void fill_with_random_data(void* ptr, size_t bytes)
 {
     if (bytes == 0)
@@ -214,49 +119,44 @@ void fill_with_random_data(void* ptr, size_t bytes)
     }
 }
 
+void test_noc_dma(Device& device, DmaBuffer& buffer)
+{
+    uint8_t* data = (uint8_t*)buffer.get_mem();
+    uint64_t noc_addr = buffer.get_noc_addr();
+    size_t len = buffer.get_len();
+
+    std::vector<uint8_t> pattern(len);
+    fill_with_random_data(pattern.data(), len);
+
+    auto [x, y] = device.get_pcie_coordinates();
+    device.noc_write(x, y, noc_addr, pattern.data(), len);
+    device.noc_read32(x, y, noc_addr);
+    device.noc_read32(x, y, noc_addr + len - sizeof(uint32_t));
+
+    if (memcmp(data, pattern.data(), len) != 0) {
+        printf("NOC DMA test FAILED (size=0x%lx)\n", len);
+        return;
+    }
+
+    printf("NOC DMA test PASSED (size=0x%lx)\n", len);
+}
+
 void test_noc_dma(Device& device, size_t magnitude)
 {
     size_t buffer_size = 1ULL << magnitude;
-    DmaBuffer buffer(device, buffer_size);
-    uint8_t* data = (uint8_t*)buffer.get_mem();
-    uint64_t noc_addr = buffer.get_noc_addr();
-
-    std::vector<uint8_t> pattern(buffer_size);
-    fill_with_random_data(pattern.data(), buffer_size);
-
-    auto [x, y] = device.get_pcie_coordinates();
-    device.noc_write(x, y, noc_addr, pattern.data(), buffer_size);
-
-    if (memcmp(data, pattern.data(), buffer_size) != 0) {
-        printf("Data mismatch\n");
+    DmaBuffer* buffer;
+    try {
+        buffer = new DmaBuffer(device, buffer_size);
+    } catch (const std::system_error& e) {
+        printf("NOC DMA test SKIPPED (size=0x%lx): %s\n", buffer_size, e.what());
+        // Tips:
+        // echo 1 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+        // echo 1 | sudo tee /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+        // remove `iommu=pt` or any e.g. `intel_iommu=off` from kernel command line and reboot
         return;
     }
 
-    printf("NOC DMA test PASSED (size=0x%lx)\n", buffer_size);
-}
-
-void test_noc_dma_tlb(Device& device, size_t magnitude)
-{
-    size_t buffer_size = 1ULL << magnitude;
-    DmaBuffer buffer(device, buffer_size);
-    uint8_t* data = (uint8_t*)buffer.get_mem();
-    uint64_t noc_addr = buffer.get_noc_addr();
-
-    std::vector<uint8_t> pattern(buffer_size);
-    fill_with_random_data(pattern.data(), buffer_size);
-
-    auto [x, y] = device.get_pcie_coordinates();
-    TlbWindow tlb(device, 1ULL << 21, TT_MMIO_CACHE_MODE_WC);
-    TlbWindowUtils::noc_write(tlb, x, y, noc_addr, pattern.data(), buffer_size);
-    TlbWindowUtils::noc_read32(tlb, x, y, noc_addr);
-    TlbWindowUtils::noc_read32(tlb, x, y, noc_addr + buffer_size - sizeof(uint32_t));
-
-    if (memcmp(data, pattern.data(), buffer_size) != 0) {
-        printf("Data mismatch\n");
-        return;
-    }
-
-    printf("NOC DMA test PASSED (size=0x%lx)\n", buffer_size);
+    test_noc_dma(device, *buffer);
 }
 
 void test_telemetry(Device& device)
@@ -350,25 +250,71 @@ void block_io_test(Device& dev)
 
 void run_tests(Device& device)
 {
-    blackhole_noc_sanity_check(device);
-    blackhole_noc_sanity_check_tlb(device);
-    wormhole_noc_sanity_check(device);
-    wormhole_noc_sanity_check_tlb(device);
-    block_io_test(device);
-    test_telemetry(device);
-    test_noc_dma(device, 21);
-    test_noc_dma(device, 30);
-    test_noc_dma_tlb(device, 21);
-    test_noc_dma_tlb(device, 30);
+    wormhole_noc_sanity_check(device);  // Ignores Blackhole devices
+    blackhole_noc_sanity_check(device); // Ignores Wormhole devices
+    block_io_test(device);              // Writes to DDR and reads back
+    test_telemetry(device);             // Reads telemetry table
+    test_noc_dma(device, 12);           // 4096 KiB DMA test
+    test_noc_dma(device, 21);           // 2 MiB DMA test
+    test_noc_dma(device, 30);           // 1 GiB DMA test
 }
 
-int main()
+int run(std::string device_path)
 {
-    for (auto device_path : DeviceUtils::enumerate_devices()) {
+    try {
         Device device(device_path.c_str());
         DeviceUtils::print_device_info(device);
         run_tests(device);
+    } catch (const std::runtime_error& e) {
+        fprintf(stderr, "Error accessing device %s: %s\n", device_path.c_str(), e.what());
+        return 1; // Indicate failure
+    }
+    return 0;
+}
+
+void print_usage(const char* prog_name) {
+    fprintf(stderr, "Usage: %s <device_id | -1>\n", prog_name);
+    fprintf(stderr, "  <device_id>: The ID of the specific device to test (e.g., 0).\n");
+    fprintf(stderr, "  -1:          Test all available devices.\n");
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 2) {
+        print_usage(argv[0]);
+        return 1;
     }
 
-    return 0;
+    std::string arg = argv[1];
+
+    if (arg == "-1") {
+        // Run on all detected devices.
+        auto device_paths = DeviceUtils::enumerate_devices();
+        if (device_paths.empty()) {
+            fprintf(stderr, "No Tenstorrent devices found in /dev/tenstorrent/\n");
+            return 1;
+        }
+
+        int failures = 0;
+        printf("Running %s on all %zu devices...\n\n", argv[0], device_paths.size());
+        for (const auto& path : device_paths) {
+            if (run(path) != 0) {
+                failures++;
+            }
+            printf("\n"); // Add a newline for better readability between devices
+        }
+
+        if (failures > 0) {
+            fprintf(stderr, "Finished. %d of %zu devices failed or were skipped.\n", failures, device_paths.size());
+            return 1;
+        } else {
+            printf("Finished. All devices were processed successfully.\n");
+            return 0;
+        }
+
+    } else {
+        // Run on a single, specified device.
+        std::string device_path = "/dev/tenstorrent/" + arg;
+        return run(device_path);
+    }
 }

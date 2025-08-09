@@ -1,6 +1,16 @@
+/**
+ * SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
+ * SPDX-License-Identifier: GPL-2.0-only
+ *
+ * @file holething.hpp
+ * @brief ttkmd.h C++ wrapper, associated routines and utilities
+ *
+ * NB: this code is often broken, caveat emptor.
+ */
+
 #pragma once
 
-#include <tenstorrent/ttkmd.h>
+#include "ttkmd.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -140,6 +150,18 @@ public:
         return ~0U; // Not found
     }
 
+    uint32_t read_scratch(uint32_t index)
+    {
+        if (is_blackhole()) {
+            // TODO
+            return ~0U;
+        }
+        auto [ARC_X, ARC_Y] = get_arc_coordinates();
+        uint64_t SCRATCH_BASE = 0x880030060;
+
+        return noc_read32(ARC_X, ARC_Y, SCRATCH_BASE + (index * sizeof(uint32_t)));
+    }
+
     std::pair<uint16_t, uint16_t> get_pcie_coordinates() const
     {
         if (is_wormhole()) {
@@ -224,6 +246,89 @@ public:
                 << std::setw(2) << device.get_pci_device()   << "."
                 << std::setw(1) << device.get_pci_function() << std::dec
                 << " ---" << std::endl;
+    }
+
+    static inline int noc_sanity_check(Device& device)
+    {
+        if (device.is_blackhole()) {
+            static constexpr uint64_t NOC_NODE_ID_LOGICAL = 0xffb20148ULL;
+
+            auto is_tensix_bh = [](uint32_t x, uint32_t y) -> bool {
+                return (y >= 2 && y <= 11) &&   // Valid y range
+                    ((x >= 1 && x <= 7) ||      // Left block
+                    (x >= 10 && x <= 16));      // Right block
+            };
+
+            auto [size_x, size_y] = device.get_noc_grid_size();
+            for (uint32_t x = 0; x < size_x; ++x) {
+                for (uint32_t y = 0; y < size_y; ++y) {
+
+                    if (!is_tensix_bh(x, y))
+                        continue;
+
+                    uint32_t node_id = device.noc_read32(x, y, NOC_NODE_ID_LOGICAL);
+                    uint32_t node_id_x = (node_id >> 0x0) & 0x3f;
+                    uint32_t node_id_y = (node_id >> 0x6) & 0x3f;
+
+                    if (node_id_x != x || node_id_y != y) {
+                        return -1;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        if (device.is_wormhole()) {
+            {
+                constexpr uint32_t ARC_X = 0;
+                constexpr uint32_t ARC_Y = 10;
+                constexpr uint64_t ARC_NOC_NODE_ID = 0xFFFB2002CULL;
+
+                auto node_id = device.noc_read32(ARC_X, ARC_Y, ARC_NOC_NODE_ID);
+                auto x = (node_id >> 0x0) & 0x3f;
+                auto y = (node_id >> 0x6) & 0x3f;
+                if (x != ARC_X || y != ARC_Y) {
+                    return -1;
+                }
+            }
+
+            {
+                constexpr uint32_t DDR_X = 0;
+                constexpr uint32_t DDR_Y = 11;
+                constexpr uint64_t DDR_NOC_NODE_ID = 0x10009002CULL;
+
+                auto node_id = device.noc_read32(DDR_X, DDR_Y, DDR_NOC_NODE_ID);
+                auto x = (node_id >> 0x0) & 0x3f;
+                auto y = (node_id >> 0x6) & 0x3f;
+                if (x != DDR_X || y != DDR_Y) {
+                    return -1;
+                }
+            }
+
+            constexpr uint64_t TENSIX_NOC_NODE_ID = 0xffb2002cULL;
+            auto is_tensix_wh = [](uint32_t x, uint32_t y) -> bool {
+                return (((y != 6) && (y >= 1) && (y <= 11)) && // valid Y
+                        ((x != 5) && (x >= 1) && (x <= 9)));   // valid X
+            };
+            for (uint32_t x = 0; x < 12; ++x) {
+                for (uint32_t y = 0; y < 12; ++y) {
+                    if (!is_tensix_wh(x, y)) {
+                        continue;
+                    }
+                    auto node_id = device.noc_read32(x, y, TENSIX_NOC_NODE_ID);
+                    auto node_id_x = (node_id >> 0x0) & 0x3f;
+                    auto node_id_y = (node_id >> 0x6) & 0x3f;
+
+                    if (node_id_x != x || node_id_y != y) {
+                        return -1;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        return -1;
     }
 };
 

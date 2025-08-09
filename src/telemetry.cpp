@@ -74,7 +74,7 @@ struct TelemTag {
 // Use a macro to create an entry for each tag
 #define ADD_TELEMETRY_TAG(id) { id, #id }
 
-int main()
+int main(int argc, char** argv)
 {
     std::vector<TelemTag> telemetry_tags = {
         ADD_TELEMETRY_TAG(TAG_BOARD_ID_HIGH),
@@ -142,6 +142,24 @@ int main()
         if (strlen(tag_entry.name) > max_name_len) {
             max_name_len = strlen(tag_entry.name);
         }
+    }
+
+    if (argc == 2) {
+        Device device(argv[1]);
+
+        DeviceUtils::print_device_info(device);
+
+        for (const auto& tag_entry : telemetry_tags) {
+            uint32_t value = device.read_telemetry(tag_entry.id);
+
+            std::cout << std::setfill(' ');
+
+            std::cout << std::dec << std::setw(3) << std::left << tag_entry.id << " " // Tag ID, left-aligned
+                        << std::setw(max_name_len) << std::left << tag_entry.name << " " // Tag Name, left-aligned
+                        << "0x" << std::hex << std::setw(8) << std::setfill('0') << std::right << value // Hex value, right-aligned, zero-filled
+                        << " : " << std::dec << value << std::endl; // Decimal value
+        }
+        return 0;
     }
 
     for (auto device_path : DeviceUtils::enumerate_devices()) {

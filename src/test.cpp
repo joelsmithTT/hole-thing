@@ -157,6 +157,7 @@ void test_noc_dma(Device& device, size_t magnitude)
     }
 
     test_noc_dma(device, *buffer);
+    delete buffer;
 }
 
 void test_telemetry(Device& device)

@@ -27,9 +27,14 @@ int hang_device_noc(const std::string& device_path) {
             return 1; // Indicate failure/skip
         }
 
+        // 2. Attempt to hang the NOC.
         TlbWindow tlb1(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
 
-        // 2. Attempt to hang the NOC by causing a timeout on an invalid read.
+        tlb1.map(1, 11, 0xffa00000);
+        for (uint32_t i = 0; i < 20; ++i) {
+            tlb1.read32(0x114000 + (i * 4));
+        }
+
         bool timeout_triggered = false;
         for (int x = 0; x < 32; ++x) {
             for (int y = 0; y < 32; ++y) {

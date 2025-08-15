@@ -1,16 +1,16 @@
-/**
- * @brief Clean, robust utility to reset a single Tenstorrent device.
- *
- * This version uses standardized logging macros and robustly rediscovers the
- * device by its PCI BDF after the reset, accounting for potentially unstable
- * device node IDs (/dev/tenstorrent/N).
- *
- * To Compile:
- * gcc -o reset reset.c
- *
- * To Run:
- * ./reset [--dmc] <device_id>
- */
+// SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// Reset Tool for Tenstorrent Devices.
+//
+// Disclaimer: Iteratively AI-written with manual adjustments.
+//
+// To Compile:
+//  gcc -o reset reset.c
+//
+// To Run:
+//  ./reset [--dmc] <device_id>
+//
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +26,12 @@
 #include <time.h>
 
 // --- Logging Macros ---
+#define NOISY 1
+#if NOISY
 #define INFO(fmt, ...) do { fprintf(stdout, "%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); } while (0)
+#else
+#define INFO(fmt, ...) do { } while (0)
+#endif
 #define FATAL(fmt, ...) do { fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); exit(1); } while (0)
 
 // --- Driver Definitions ---
@@ -41,6 +46,16 @@
 
 #define BDF_STRING_SIZE 18
 
+// --- Device Definitions ---
+#define BLACKHOLE_PCI_DEVICE_ID 0xb140
+#define WORMHOLE_PCI_DEVICE_ID  0x401e
+
+enum TtDeviceType {
+    DEVICE_TYPE_UNKNOWN,
+    DEVICE_TYPE_WORMHOLE,
+    DEVICE_TYPE_BLACKHOLE
+};
+
 struct tenstorrent_get_device_info {
     struct { __u32 output_size_bytes; } in;
     struct {
@@ -53,6 +68,40 @@ struct tenstorrent_reset_device {
     struct { __u32 output_size_bytes; __u32 flags; } in;
     struct { __u32 output_size_bytes; __u32 result; } out;
 };
+
+/**
+ * @brief Retrieves the device type (Wormhole or Blackhole) for a given device ID.
+ * @param dev_id The device index under /dev/tenstorrent.
+ * @return The device type as an enum TtDeviceType. Returns DEVICE_TYPE_UNKNOWN on failure.
+ */
+enum TtDeviceType get_device_type(int dev_id) {
+    char dev_path[PATH_MAX];
+    snprintf(dev_path, sizeof(dev_path), "/dev/tenstorrent/%d", dev_id);
+
+    int fd = open(dev_path, O_RDWR);
+    if (fd < 0) {
+        // This function should be non-fatal to be used safely.
+        return DEVICE_TYPE_UNKNOWN;
+    }
+
+    struct tenstorrent_get_device_info info = {0};
+    info.in.output_size_bytes = sizeof(info.out);
+
+    if (ioctl(fd, TENSTORRENT_IOCTL_GET_DEVICE_INFO, &info) < 0) {
+        close(fd);
+        return DEVICE_TYPE_UNKNOWN;
+    }
+    close(fd);
+
+    switch (info.out.device_id) {
+        case WORMHOLE_PCI_DEVICE_ID:
+            return DEVICE_TYPE_WORMHOLE;
+        case BLACKHOLE_PCI_DEVICE_ID:
+            return DEVICE_TYPE_BLACKHOLE;
+        default:
+            return DEVICE_TYPE_UNKNOWN;
+    }
+}
 
 /**
  * @brief Retrieves the PCI BDF string for a given device ID. Returns 0 on success.
@@ -130,35 +179,53 @@ int main(int argc, char *argv[]) {
     char dev_path[PATH_MAX];
     snprintf(dev_path, sizeof(dev_path), "/dev/tenstorrent/%d", initial_dev_id);
 
-    INFO("Starting reset on device %d (%s)...", initial_dev_id, dmc_reset ? "ASIC+DMC" : "ASIC-only");
+    INFO("Starting reset on device /dev/tenstorrent/%d (%s)...", initial_dev_id, dmc_reset ? "ASIC+DMC" : "ASIC-only");
 
     // Step 1: Get BDF and trigger reset
     if (get_bdf_for_dev_id(initial_dev_id, pci_bdf) != 0) {
         FATAL("Could not get BDF for initial device ID %d", initial_dev_id);
     }
-    INFO("Device %d has BDF %s.", initial_dev_id, pci_bdf);
+    INFO("/dev/tenstorrent/%d has BDF %s.", initial_dev_id, pci_bdf);
+
+    enum TtDeviceType device_type = get_device_type(initial_dev_id);
+    if (device_type == DEVICE_TYPE_UNKNOWN) FATAL("Unknown device type for /dev/tenstorrent/%d", initial_dev_id);
+    INFO("/dev/tenstorrent/%d is of type %s.", initial_dev_id,
+         device_type == DEVICE_TYPE_WORMHOLE ? "Wormhole" :
+         device_type == DEVICE_TYPE_BLACKHOLE ? "Blackhole" : "Unknown");
 
     int fd = open(dev_path, O_RDWR);
     if (fd < 0) FATAL("Could not open device %s: %s", dev_path, strerror(errno));
 
     struct tenstorrent_reset_device reset_cmd = {0};
     reset_cmd.in.flags = dmc_reset ? TENSTORRENT_RESET_DEVICE_ASIC_DMC_RESET : TENSTORRENT_RESET_DEVICE_ASIC_RESET;
+    reset_cmd.in.output_size_bytes = sizeof(reset_cmd.out);
     if (ioctl(fd, TENSTORRENT_IOCTL_RESET_DEVICE, &reset_cmd) < 0) {
         close(fd);
         FATAL("Reset trigger ioctl failed: %s", strerror(errno));
     }
+    if (reset_cmd.out.result != 0) {
+        close(fd);
+        FATAL("Reset trigger %u returned error code %u", reset_cmd.in.flags, reset_cmd.out.result);
+    }
     close(fd);
 
     // Step 2: Wait for reset to complete
-    char sysfs_path[PATH_MAX];
+    char sysfs_path[128];
     snprintf(sysfs_path, sizeof(sysfs_path), "/sys/bus/pci/devices/%s", pci_bdf);
 
     INFO("Waiting for reset to complete for device %s...", pci_bdf);
-    int timeout_s = dmc_reset ? 60 : 15;
+
+    if (device_type == DEVICE_TYPE_WORMHOLE) {
+        // Some amount of time here seems necessary for WH.
+        // tt-smi uses 2 seconds, but that seems excessive.
+        // On my system, 20ms isn't long enough but 40ms is.
+        usleep(500000); // 500ms
+    }
+
+    int timeout_s = dmc_reset ? 10 : 5; // TODO: 10, 5??
     time_t start_time = time(NULL);
     int reset_complete = 0;
     int device_disappeared = 0;
-
     while (time(NULL) - start_time < timeout_s) {
         if (access(sysfs_path, F_OK) == 0) {
             if (device_disappeared) {
@@ -166,7 +233,7 @@ int main(int argc, char *argv[]) {
                 reset_complete = 1;
                 break;
             }
-            char config_path[PATH_MAX*2];
+            char config_path[256];
             snprintf(config_path, sizeof(config_path), "%s/config", sysfs_path);
             int config_fd = open(config_path, O_RDONLY);
             if (config_fd >= 0) {
@@ -186,6 +253,7 @@ int main(int argc, char *argv[]) {
         }
         usleep(100000); // 100ms
     }
+
 
     if (!reset_complete) FATAL("Timed out waiting for reset to complete.");
 
@@ -207,13 +275,20 @@ int main(int argc, char *argv[]) {
     fd = open(new_dev_path, O_RDWR);
     if (fd < 0) FATAL("Could not open re-discovered device node %s: %s", new_dev_path, strerror(errno));
 
+    memset(&reset_cmd, 0, sizeof(reset_cmd));
     reset_cmd.in.flags = TENSTORRENT_RESET_DEVICE_POST_RESET;
+    reset_cmd.in.output_size_bytes = sizeof(reset_cmd.out);
     if (ioctl(fd, TENSTORRENT_IOCTL_RESET_DEVICE, &reset_cmd) < 0) {
         close(fd);
         FATAL("POST_RESET ioctl failed: %s", strerror(errno));
     }
+    if (reset_cmd.out.result != 0) {
+        close(fd);
+        FATAL("POST_RESET ioctl returned error code %u", reset_cmd.out.result);
+    }
     close(fd);
 
     INFO("Reset process completed successfully.");
+
     return 0;
 }

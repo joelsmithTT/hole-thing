@@ -53,6 +53,7 @@ int wormhole_noc_sanity_check(Device& device)
         auto x = (node_id >> 0x0) & 0x3f;
         auto y = (node_id >> 0x6) & 0x3f;
         if (x != ARC_X || y != ARC_Y) {
+            printf("Wormhole NOC sanity test FAILED: ");
             printf("ARC node ID mismatch, expected (%u, %u), got (%u, %u)\n", ARC_X, ARC_Y, x, y);
             return -1;
         }
@@ -67,6 +68,7 @@ int wormhole_noc_sanity_check(Device& device)
         auto x = (node_id >> 0x0) & 0x3f;
         auto y = (node_id >> 0x6) & 0x3f;
         if (x != DDR_X || y != DDR_Y) {
+            printf("Wormhole NOC sanity test FAILED: ");
             printf("DDR node ID mismatch, expected (%u, %u), got (%u, %u)\n", DDR_X, DDR_Y, x, y);
             return -1;
         }
@@ -87,6 +89,7 @@ int wormhole_noc_sanity_check(Device& device)
             auto node_id_y = (node_id >> 0x6) & 0x3f;
 
             if (node_id_x != x || node_id_y != y) {
+                printf("Wormhole NOC sanity test FAILED: ");
                 printf("Expected x: %u, y: %u, got x: %u, y: %u\n", x, y, node_id_x, node_id_y);
                 return -1;
             }
@@ -213,7 +216,7 @@ static inline uint32_t my_rand(void)
     return (uint32_t)(seed / 65536) % 32768;
 }
 
-void block_io_test(Device& dev)
+int block_io_test(Device& dev)
 {
     uint16_t ddr_x = dev.is_wormhole() ? WH_DDR_X : dev.is_blackhole() ? BH_DDR_X : -1;
     uint16_t ddr_y = dev.is_wormhole() ? WH_DDR_Y : dev.is_blackhole() ? BH_DDR_Y : -1;
@@ -253,16 +256,17 @@ void block_io_test(Device& dev)
 
         /* Verify that the data matches. */
         if (memcmp(data, read_data, len) != 0) {
-            printf("Data mismatch at address 0x%lx\n", addr);
+            printf("Block I/O test FAILED: data mismatch at address 0x%lx\n", addr);
             free(read_data);
             free(data);
-            exit(EXIT_FAILURE);
+            return -1;
         }
 
         free(read_data);
     }
 
     printf("Block I/O test PASSED\n");
+    return 0;
 }
 
 
@@ -270,7 +274,11 @@ int run_tests(Device& device)
 {
     // Can we access NOC registers correctly?
     if (noc_sanity_check(device) != 0) {
-        printf("NOC sanity check FAILED\n");
+        return -1;
+    }
+
+    // Writes to DDR and reads back
+    if (block_io_test(device) != 0) {
         return -1;
     }
 
@@ -278,21 +286,18 @@ int run_tests(Device& device)
     if (test_noc_dma(device, 12) != 0) {
         return -1;
     }
+
+    // 2 MiB DMA test
+    if (test_noc_dma(device, 21) != 0) {
+        return -1;
+    }
+
+    // 1 GiB DMA test
+    if (test_noc_dma(device, 30) != 0) {
+        return -1;
+    }
+
     return 0;
-
-#if 0 // Skip these for now.
-    // Skipped becase DDR takes too long to train on 6U WH, so we might not be able to touch it yet.
-    block_io_test(device);              // Writes to DDR and reads back
-
-    // Skipped because DDR takes too long to train, FW might not be ready with telemetry yet.
-    test_telemetry(device);             // Reads telemetry table
-
-    // ... because no IOMMU, no 2 MiB pages = fail
-    test_noc_dma(device, 21);           // 2 MiB DMA test
-
-    // ... because it takes too long
-    test_noc_dma(device, 30);           // 1 GiB DMA test
-#endif
 }
 
 int run(std::string device_path)

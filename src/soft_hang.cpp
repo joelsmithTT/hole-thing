@@ -28,13 +28,9 @@ int hang_device_noc(const std::string& device_path) {
         }
 
         // 2. Attempt to hang the NOC.
+        // This hangs the NOC but seems to leave PCIe in a state where the chip
+        // is still accessible (contrast with the technique in hard_hang.cpp).
         TlbWindow tlb1(device, 1ULL << 21, TT_MMIO_CACHE_MODE_UC);
-
-        tlb1.map(1, 11, 0xffa00000);
-        for (uint32_t i = 0; i < 20; ++i) {
-            tlb1.read32(0x114000 + (i * 4));
-        }
-
         bool timeout_triggered = false;
         for (int x = 0; x < 32; ++x) {
             for (int y = 0; y < 32; ++y) {

@@ -32,7 +32,8 @@ TARGETS := \
 	$(BIN_DIR)/test \
 	$(BIN_DIR)/telemetry \
 	$(BIN_DIR)/scratch \
-	$(BIN_DIR)/hang
+	$(BIN_DIR)/soft_hang \
+	$(BIN_DIR)/hard_hang
 
 TOOLS_C_SOURCES := $(wildcard $(TOOLS_DIR)/*.c)
 TOOLS_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))

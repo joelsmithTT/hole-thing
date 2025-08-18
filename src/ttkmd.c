@@ -295,7 +295,15 @@ int tt_noc_read(tt_device_t* dev, uint8_t x, uint8_t y, uint64_t addr, void* dst
             return ret;
         }
 
+#if 0
         memcpy(dst_ptr, src_ptr, chunk_size);
+#else
+        for (size_t i = 0; i < chunk_size / sizeof(uint32_t); ++i) {
+            uint32_t* src32 = (uint32_t*)src_ptr;
+            volatile uint32_t* dst32 = (volatile uint32_t*)dst_ptr;
+            dst32[i] = src32[i];
+        }
+#endif
 
         dst_ptr += chunk_size;
         len -= chunk_size;
@@ -335,7 +343,15 @@ int tt_noc_write(tt_device_t* dev, uint8_t x, uint8_t y, uint64_t addr, const vo
             return ret;
         }
 
+#if 0
         memcpy(dst_ptr, src_ptr, chunk_size);
+#else
+        for (size_t i = 0; i < chunk_size / sizeof(uint32_t); ++i) {
+            uint32_t* src32 = (uint32_t*)src_ptr;
+            volatile uint32_t* dst32 = (volatile uint32_t*)dst_ptr;
+            dst32[i] = src32[i];
+        }
+#endif
 
         src_ptr += chunk_size;
         len -= chunk_size;

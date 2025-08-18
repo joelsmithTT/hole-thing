@@ -459,7 +459,16 @@ public:
             uint8_t* src_ptr = (uint8_t*)tlb.get_mmio() + offset;
 
             tlb.map(x, y, aligned_addr);
+
+#if 0
             memcpy(dst_ptr, src_ptr, chunk_size);
+#else
+            for (size_t i = 0; i < chunk_size / sizeof(uint32_t); ++i) {
+                uint32_t* src32 = (uint32_t*)src_ptr;
+                volatile uint32_t* dst32 = (volatile uint32_t*)dst_ptr;
+                dst32[i] = src32[i];
+            }
+#endif
 
             dst_ptr += chunk_size;
             len -= chunk_size;
@@ -482,7 +491,16 @@ public:
             uint8_t* dst_ptr = (uint8_t*)tlb.get_mmio() + offset;
 
             tlb.map(x, y, aligned_addr);
+
+#if 0
             memcpy(dst_ptr, src_ptr, chunk_size);
+#else
+            for (size_t i = 0; i < chunk_size / sizeof(uint32_t); ++i) {
+                uint32_t* src32 = (uint32_t*)src_ptr;
+                volatile uint32_t* dst32 = (volatile uint32_t*)dst_ptr;
+                dst32[i] = src32[i];
+            }
+#endif
 
             src_ptr += chunk_size;
             len -= chunk_size;

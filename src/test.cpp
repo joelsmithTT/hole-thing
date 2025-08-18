@@ -35,7 +35,7 @@ int blackhole_noc_sanity_check(Device& device)
             }
         }
     }
-    printf("Blackhole NOC sanity test 1/2 PASSED\n");
+    printf("Blackhole NOC sanity test PASSED\n");
     return 0;
 }
 

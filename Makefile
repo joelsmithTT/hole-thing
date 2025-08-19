@@ -36,13 +36,16 @@ TARGETS := \
 	$(BIN_DIR)/hard_hang
 
 TOOLS_C_SOURCES := $(wildcard $(TOOLS_DIR)/*.c)
-TOOLS_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))
+TOOLS_C_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))
+
+TOOLS_CXX_SOURCES := $(wildcard $(TOOLS_DIR)/*.cpp)
+TOOLS_CXX_TARGETS := $(patsubst $(TOOLS_DIR)/%.cpp,$(BIN_DIR)/%,$(TOOLS_CXX_SOURCES))
 
 # Your project's own header files
 HEADERS := $(wildcard include/*.hpp)
 
 # The default 'all' target now builds both the main tools and the standalone tools
-all: $(TARGETS) $(TOOLS_TARGETS)
+all: $(TARGETS) $(TOOLS_C_TARGETS) $(TOOLS_CXX_TARGETS)
 
 # --- Build Rules for Main Executables (from src/) ---
 
@@ -64,6 +67,11 @@ $(BIN_DIR)/%: $(TOOLS_DIR)/%.c
 	@echo "CC (Standalone) $< -> $@"
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< -o $@
+
+$(BIN_DIR)/%: $(TOOLS_DIR)/%.cpp
+	@echo "CXX (Standalone) $< -> $@"
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 # --- Build Rules for the Static Library ---
 

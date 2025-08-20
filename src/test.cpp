@@ -2,6 +2,7 @@
 
 #include <map>
 #include <random>
+#include <unordered_set>
 
 using namespace tt;
 
@@ -153,12 +154,133 @@ int test_noc_dma(Device& device, DmaBuffer& buffer)
 
     if (memcmp(data, pattern.data(), len) != 0) {
         printf("NOC DMA test FAILED (size=0x%lx)\n", len);
+
+        size_t n = 0;
+        for (size_t i = 0; i < len; ++i) {
+            uint8_t a = data[i];
+            uint8_t b = pattern[i];
+            if (a != b) {
+                printf("0x%lx: %d vs %d\n", i, a, b);
+                if (n++ > 10) break;
+            }
+        }
+
         return -1;
     }
 
     printf("NOC DMA test PASSED (size=0x%lx)\n", len);
     return 0;
 }
+
+int test_noc_dma_v2(Device& device, DmaBuffer& buffer)
+{
+    auto* base = static_cast<uint8_t*>(buffer.get_mem());
+    const size_t buflen = buffer.get_len();
+    const uint64_t noc0 = buffer.get_noc_addr();
+    auto [pcie_x, pcie_y] = device.get_pcie_coordinates();
+
+    if (buflen < 128) {
+        printf("NOC DMA v2: buffer too small\n");
+        return -1;
+    }
+
+    // Step 1. Fill entire buffer with a known background pattern.
+    memset(base, 0xAA, buflen);
+
+    // Step 2. Choose a slice in the middle.
+    size_t off = 64;
+    size_t len = 32;
+
+    std::vector<uint8_t> pattern(len);
+    for (size_t i = 0; i < len; i++) {
+        pattern[i] = 0x10 + (uint8_t)i;
+    }
+
+    // Step 3. Device writes only that slice.
+    device.noc_write(pcie_x, pcie_y, noc0 + off, pattern.data(), len);
+
+    // Force device to push result back into host buffer.
+    (void)device.noc_read32(pcie_x, pcie_y, noc0 + off);
+
+    // Step 4. Verify.
+    // Bytes before the slice must remain 0xAA.
+    for (size_t i = 0; i < off; i++) {
+        if (base[i] != 0xAA) {
+            printf("NOC DMA v2 FAILED: corruption before slice at %zu\n", i);
+            return -1;
+        }
+    }
+    // Bytes inside must match pattern.
+    if (memcmp(base + off, pattern.data(), len) != 0) {
+        printf("NOC DMA v2 FAILED: data mismatch in slice\n");
+        return -1;
+    }
+    // Bytes after the slice must remain 0xAA.
+    for (size_t i = off + len; i < buflen; i++) {
+        if (base[i] != 0xAA) {
+            printf("NOC DMA v2 FAILED: corruption after slice at %zu\n", i);
+            return -1;
+        }
+    }
+
+    printf("NOC DMA v2 single test PASSED\n");
+    return 0;
+}
+
+int test_noc_dma_v3(Device& device, DmaBuffer& buffer)
+{
+    uint32_t* base = static_cast<uint32_t*>(buffer.get_mem());
+    const size_t buflen = buffer.get_len();
+    const size_t nwords = buflen / sizeof(uint32_t);
+    const uint64_t noc0 = buffer.get_noc_addr();
+    auto [pcie_x, pcie_y] = device.get_pcie_coordinates();
+
+    if (nwords == 0) {
+        printf("NOC DMA v3: buffer too small\n");
+        return -1;
+    }
+
+    // Step 1. Fill with known non-zero pattern
+    for (size_t i = 0; i < nwords; i++) {
+        base[i] = 0xDEADBEEF ^ (uint32_t)i;
+    }
+
+    // Step 2. Randomly choose some word indices to zero via device
+    std::mt19937_64 rng(0x12345678);
+    std::uniform_int_distribution<size_t> dist(0, nwords - 1);
+
+    std::unordered_set<size_t> zeroed;
+
+    const size_t nops = std::min<size_t>(nwords, 256); // limit how many writes
+    for (size_t i = 0; i < nops; i++) {
+        size_t idx = dist(rng);
+        uint64_t addr = noc0 + idx * sizeof(uint32_t);
+
+        uint32_t zero = 0;
+        device.noc_write(pcie_x, pcie_y, addr, &zero, sizeof(uint32_t));
+
+        zeroed.insert(idx);
+    }
+
+    // Step 3. Force device to push results
+    (void)device.noc_read32(pcie_x, pcie_y, noc0);
+
+    // Step 4. Verify entire buffer
+    for (size_t i = 0; i < nwords; i++) {
+        uint32_t expected = zeroed.count(i) ? 0 : (0xDEADBEEF ^ (uint32_t)i);
+        if (base[i] != expected) {
+            printf("NOC DMA v3 FAILED at word %zu: got 0x%08x, expected 0x%08x\n",
+                   i, base[i], expected);
+            return -1;
+        }
+    }
+
+    printf("NOC DMA v3 test PASSED (size=0x%zx, %zu words, %zu zeroed)\n",
+           buflen, nwords, zeroed.size());
+    return 0;
+}
+
+
 
 int test_noc_dma(Device& device, size_t magnitude)
 {
@@ -176,6 +298,11 @@ int test_noc_dma(Device& device, size_t magnitude)
     }
 
     int r = test_noc_dma(device, *buffer);
+    if (r == 0)
+        r = test_noc_dma_v2(device, *buffer);
+    r = 0;
+    if (r == 0)
+        r = test_noc_dma_v3(device, *buffer);
     delete buffer;
     return r;
 }

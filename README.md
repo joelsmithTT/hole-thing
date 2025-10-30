@@ -22,11 +22,13 @@ The guiding principle here is **simplicity and portability**.
 * **`tools/`**: Contains standalone C/C++ diagnostic tools. They have no external dependencies and can be copied to a
 machine, built with `g++`, and run immediately.
 * **`src/`**: Development area for `holething.hpp`—a C++ wrapper over `libttkmd`—and its associated validation tests.
+* **`tensix/`**: RISC-V firmware for Tensix cores. Built with `riscv32-unknown-elf-gcc` and loaded/executed by test programs in `src/`.
 
 ---
 
 ### Dependencies
 * `g++`
+* `riscv32-unknown-elf-gcc` (for building Tensix firmware)
 * A `tt-kmd` driver instance to talk to
 
 ---

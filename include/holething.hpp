@@ -206,6 +206,20 @@ public:
         return {~0ULL, ~0ULL};
     }
 
+    std::vector<std::pair<uint16_t, uint16_t>> get_gddr_coordinates() const
+    {
+        if (is_wormhole()) {
+            throw std::runtime_error("Unimplemented");
+        } else if (is_blackhole()) {
+            // TODO: this is bugged on p100; the last channel is invalid.
+            // This is also using the same port used by ARC FW on the 18 column,
+            // which maybe isn't the most ideal. Probably time to think about a
+            // better abstraction for coordinates, but for now...
+            return {{17, 12}, {18, 12}, {17, 15}, {18, 15}, {17, 18}, {18, 18}, {17, 21}, {18, 21}};
+        }
+        throw std::runtime_error("Unknown device architecture");
+    }
+
     ~Device()
     {
         tt_device_close(device);
@@ -396,6 +410,7 @@ public:
         if (offset % 4 != 0) {
             throw std::invalid_argument("Misaligned");
         }
+        // TODO: off the end?
 
         return *(volatile uint32_t*)((uint8_t*)get_mmio() + offset);
     }
@@ -405,6 +420,7 @@ public:
         if (offset % 4 != 0) {
             throw std::invalid_argument("Misaligned");
         }
+        // TODO: off the end?
 
         *(volatile uint32_t*)((uint8_t*)get_mmio() + offset) = value;
     }

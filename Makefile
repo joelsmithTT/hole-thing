@@ -33,7 +33,11 @@ TARGETS := \
 	$(BIN_DIR)/telemetry \
 	$(BIN_DIR)/scratch \
 	$(BIN_DIR)/soft_hang \
-	$(BIN_DIR)/hard_hang
+	$(BIN_DIR)/hard_hang \
+	$(BIN_DIR)/iter01 \
+	$(BIN_DIR)/iter02 \
+	$(BIN_DIR)/iter03 \
+	$(BIN_DIR)/iter04
 
 TOOLS_C_SOURCES := $(wildcard $(TOOLS_DIR)/*.c)
 TOOLS_C_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))
@@ -45,7 +49,7 @@ TOOLS_CXX_TARGETS := $(patsubst $(TOOLS_DIR)/%.cpp,$(BIN_DIR)/%,$(TOOLS_CXX_SOUR
 HEADERS := $(wildcard include/*.hpp)
 
 # The default 'all' target now builds both the main tools and the standalone tools
-all: $(TARGETS) $(TOOLS_C_TARGETS) $(TOOLS_CXX_TARGETS)
+all: tensix $(TARGETS) $(TOOLS_C_TARGETS) $(TOOLS_CXX_TARGETS)
 
 # --- Build Rules for Main Executables (from src/) ---
 
@@ -89,6 +93,11 @@ $(TTKMD_OBJ): $(TTKMD_C_SRC) $(TTKMD_H_SRC) $(IOCTL_H_SRC)
 
 # --- Utility Targets ---
 
+# Build Tensix firmware
+tensix:
+	@echo "Building Tensix firmware..."
+	@$(MAKE) -C tensix
+
 test: $(BIN_DIR)/test
 	@echo "--- Running tests on all devices ---"
 	./$(BIN_DIR)/test -1
@@ -101,6 +110,7 @@ telemetry: $(BIN_DIR)/telemetry
 clean:
 	@echo "Cleaning up generated files..."
 	rm -rf $(BIN_DIR) $(LIB_DIR) $(OBJ_DIR)
+	@$(MAKE) -C tensix clean
 
 # .PHONY declares targets that are not files, preventing conflicts
-.PHONY: all clean test telemetry
+.PHONY: all clean test telemetry tensix

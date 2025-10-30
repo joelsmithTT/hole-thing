@@ -18,7 +18,132 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
-#include "ioctl.h"
+#include <linux/types.h>
+
+// --- Start of inlined ioctl.h definitions ---
+#define TENSTORRENT_IOCTL_MAGIC 0xFA
+
+#define TENSTORRENT_IOCTL_GET_DEVICE_INFO	_IO(TENSTORRENT_IOCTL_MAGIC, 0)
+#define TENSTORRENT_IOCTL_ALLOCATE_DMA_BUF	_IO(TENSTORRENT_IOCTL_MAGIC, 3)
+#define TENSTORRENT_IOCTL_FREE_DMA_BUF		_IO(TENSTORRENT_IOCTL_MAGIC, 4)
+#define TENSTORRENT_IOCTL_ALLOCATE_TLB		_IO(TENSTORRENT_IOCTL_MAGIC, 11)
+#define TENSTORRENT_IOCTL_FREE_TLB		_IO(TENSTORRENT_IOCTL_MAGIC, 12)
+#define TENSTORRENT_IOCTL_CONFIGURE_TLB		_IO(TENSTORRENT_IOCTL_MAGIC, 13)
+
+struct tenstorrent_get_device_info_in {
+	__u32 output_size_bytes;
+};
+
+struct tenstorrent_get_device_info_out {
+	__u32 output_size_bytes;
+	__u16 vendor_id;
+	__u16 device_id;
+	__u16 subsystem_vendor_id;
+	__u16 subsystem_id;
+	__u16 bus_dev_fn;	// [0:2] function, [3:7] device, [8:15] bus
+	__u16 max_dma_buf_size_log2;	// Since 1.0
+	__u16 pci_domain;		// Since 1.23
+};
+
+struct tenstorrent_get_device_info {
+	struct tenstorrent_get_device_info_in in;
+	struct tenstorrent_get_device_info_out out;
+};
+
+#define TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA 2
+
+struct tenstorrent_allocate_dma_buf_in {
+	__u32 requested_size;
+	__u8  buf_index;	// [0,TENSTORRENT_MAX_DMA_BUFS)
+	__u8  flags;
+	__u8  reserved0[2];
+	__u64 reserved1[2];
+};
+
+struct tenstorrent_allocate_dma_buf_out {
+	__u64 physical_address;	// or IOVA
+	__u64 mapping_offset;
+	__u32 size;
+	__u32 reserved0;
+	__u64 noc_address;	// valid if TENSTORRENT_ALLOCATE_DMA_BUF_NOC_DMA is set
+	__u64 reserved1;
+};
+
+struct tenstorrent_allocate_dma_buf {
+	struct tenstorrent_allocate_dma_buf_in in;
+	struct tenstorrent_allocate_dma_buf_out out;
+};
+
+struct tenstorrent_free_dma_buf_in {
+};
+
+struct tenstorrent_free_dma_buf_out {
+};
+
+struct tenstorrent_free_dma_buf {
+	struct tenstorrent_free_dma_buf_in in;
+	struct tenstorrent_free_dma_buf_out out;
+};
+
+struct tenstorrent_allocate_tlb_in {
+	__u64 size;
+	__u64 reserved;
+};
+
+struct tenstorrent_allocate_tlb_out {
+	__u32 id;
+	__u32 reserved0;
+	__u64 mmap_offset_uc;
+	__u64 mmap_offset_wc;
+	__u64 reserved1;
+};
+
+struct tenstorrent_allocate_tlb {
+	struct tenstorrent_allocate_tlb_in in;
+	struct tenstorrent_allocate_tlb_out out;
+};
+
+struct tenstorrent_free_tlb_in {
+	__u32 id;
+};
+
+struct tenstorrent_free_tlb_out {
+};
+
+struct tenstorrent_free_tlb {
+	struct tenstorrent_free_tlb_in in;
+	struct tenstorrent_free_tlb_out out;
+};
+
+struct tenstorrent_noc_tlb_config {
+	__u64 addr;
+	__u16 x_end;
+	__u16 y_end;
+	__u16 x_start;
+	__u16 y_start;
+	__u8 noc;
+	__u8 mcast;
+	__u8 ordering;
+	__u8 linked;
+	__u8 static_vc;
+	__u8 reserved0[3];
+	__u32 reserved1[2];
+};
+
+struct tenstorrent_configure_tlb_in {
+	__u32 id;
+	struct tenstorrent_noc_tlb_config config;
+};
+
+struct tenstorrent_configure_tlb_out {
+	__u64 reserved;
+};
+
+struct tenstorrent_configure_tlb {
+	struct tenstorrent_configure_tlb_in in;
+	struct tenstorrent_configure_tlb_out out;
+};
+// --- End of inlined ioctl.h definitions ---
 
 // Constants
 constexpr size_t TLB_WINDOW_SIZE_2M = 2 * 1024 * 1024;
@@ -33,13 +158,14 @@ bool noc_write(int fd, uint16_t x, uint16_t y, uint64_t dest_addr, const void* s
  */
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <device_path> <size_in_kb>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <device_path> <size_in_bytes>" << std::endl;
         std::cerr << "Example: " << argv[0] << " /dev/tenstorrent/0 4096" << std::endl;
+        std::cerr << "Example: " << argv[0] << " /dev/tenstorrent/0 0x1000" << std::endl;
         return 1;
     }
 
     const char* device_path = argv[1];
-    const size_t buffer_size = std::stoul(argv[2]) * 1024;
+    const size_t buffer_size = std::stoul(argv[2], nullptr, 0);
     int dev_fd = -1;
     void* mapped_dma_buf = MAP_FAILED;
     int return_code = 1; // Default to failure
@@ -66,10 +192,12 @@ int main(int argc, char* argv[]) {
         uint64_t noc_target_addr = dma_alloc_cmd.out.noc_address;
         uint64_t mmap_offset = dma_alloc_cmd.out.mapping_offset;
         size_t allocated_size = dma_alloc_cmd.out.size;
+        uint64_t pa  = dma_alloc_cmd.out.physical_address;
 
         std::cout << "Allocated DMA buffer of size " << allocated_size << " bytes." << std::endl;
         std::cout << "  -> NOC Address: 0x" << std::hex << noc_target_addr << std::dec << std::endl;
         std::cout << "  -> MMAP Offset: 0x" << std::hex << mmap_offset << std::dec << std::endl;
+        std::cout << "  -> IOVA       : 0x" << std::hex << pa << std::dec << std::endl;
 
         // 3. Memory-map the allocated DMA buffer into this process's address space.
         mapped_dma_buf = mmap(NULL, allocated_size, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fd, mmap_offset);
@@ -107,7 +235,6 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << "\nFAILURE: Data mismatch detected!" << std::endl;
         }
-
     } catch (const std::exception& e) {
         std::cerr << "An error occurred: " << e.what() << std::endl;
         return_code = 1;

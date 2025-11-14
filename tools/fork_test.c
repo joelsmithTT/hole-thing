@@ -9,11 +9,44 @@
 #include <sys/ioctl.h>
 #include <errno.h>
 
-#include "ioctl.h"
-
 #define NOC_ID_OFFSET 0x4044
 #define NOC2AXI_CFG_START 0x1FD00000
 #define PCIE_COORD_OFFSET (NOC2AXI_CFG_START + NOC_ID_OFFSET)
+
+// Copied from ioctl.h - IOCTL definitions
+#define TENSTORRENT_IOCTL_MAGIC 0xFA
+#define TENSTORRENT_IOCTL_QUERY_MAPPINGS _IO(TENSTORRENT_IOCTL_MAGIC, 2)
+
+// Copied from ioctl.h - Mapping IDs
+#define TENSTORRENT_MAPPING_UNUSED 0
+#define TENSTORRENT_MAPPING_RESOURCE0_UC 1
+#define TENSTORRENT_MAPPING_RESOURCE0_WC 2
+#define TENSTORRENT_MAPPING_RESOURCE1_UC 3
+#define TENSTORRENT_MAPPING_RESOURCE1_WC 4
+#define TENSTORRENT_MAPPING_RESOURCE2_UC 5
+#define TENSTORRENT_MAPPING_RESOURCE2_WC 6
+
+// Copied from ioctl.h - Structures for QUERY_MAPPINGS
+struct tenstorrent_query_mappings_in {
+	uint32_t output_mapping_count;
+	uint32_t reserved;
+};
+
+struct tenstorrent_mapping {
+	uint32_t mapping_id;
+	uint32_t reserved;
+	uint64_t mapping_base;
+	uint64_t mapping_size;
+};
+
+struct tenstorrent_query_mappings_out {
+	struct tenstorrent_mapping mappings[0];
+};
+
+struct tenstorrent_query_mappings {
+	struct tenstorrent_query_mappings_in in;
+	struct tenstorrent_query_mappings_out out;
+};
 
 // Helper struct for TENSTORRENT_IOCTL_QUERY_MAPPINGS
 struct tenstorrent_query_mappings_flex {

@@ -10,6 +10,11 @@ MEMORY
     L1 (rwx) : ORIGIN = 0x00000000, LENGTH = 1536K
 }
 
+PHDRS
+{
+    text PT_LOAD;
+}
+
 SECTIONS
 {
     /* Code section - starts at 0x0 */
@@ -18,14 +23,14 @@ SECTIONS
         *(.text)
         *(.text.*)
         . = ALIGN(4);
-    } > L1
+    } > L1 :text
 
     /* Read-only data */
     .rodata : {
         *(.rodata)
         *(.rodata.*)
         . = ALIGN(4);
-    } > L1
+    } > L1 :text
 
     /* Data section */
     .data : {
@@ -34,7 +39,7 @@ SECTIONS
         *(.sdata)
         *(.sdata.*)
         . = ALIGN(4);
-    } > L1
+    } > L1 :text
 
     /* BSS section */
     .bss : {
@@ -44,7 +49,7 @@ SECTIONS
         *(.sbss.*)
         *(COMMON)
         . = ALIGN(4);
-    } > L1
+    } > L1 :text
 
     /* Discard unwanted sections */
     /DISCARD/ : {

@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
     std::cout << "1. Allocating host DMA buffer (" << BUFFER_SIZE << " bytes)...\n";
     DmaBuffer buffer(device, BUFFER_SIZE);
     uint64_t noc_addr = buffer.get_noc_addr();
-    
+
     std::cout << "   NOC address: 0x" << std::hex << noc_addr << std::dec << "\n";
 
     // Get PCIe coordinates for the NOC address
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     uint32_t addr_lo = (uint32_t)(noc_addr & 0xFFFFFFFF);
     uint32_t addr_mid = (uint32_t)(noc_addr >> 32);
     uint32_t addr_hi = (pcie_y << 6) | pcie_x;
-    
+
     device.noc_write32(TENSIX_X, TENSIX_Y, HOST_BUF_ADDR_LO, addr_lo);
     device.noc_write32(TENSIX_X, TENSIX_Y, HOST_BUF_ADDR_MID, addr_mid);
     device.noc_write32(TENSIX_X, TENSIX_Y, HOST_BUF_ADDR_HI, addr_hi);
@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
     }
 
     if (ready != 0xC0DEC0DE) {
-        std::cout << "ERROR: Tensix did not complete (ready = 0x" 
+        std::cout << "ERROR: Tensix did not complete (ready = 0x"
                   << std::hex << ready << std::dec << ")\n";
         return 1;
     }
@@ -124,12 +124,25 @@ int main(int argc, char *argv[])
 
     // Verify results
     std::cout << "7. Verifying results...\n";
+
+    // Check debug values
+    uint32_t debug_v0_0 = device.noc_read32(TENSIX_X, TENSIX_Y, 0x3000);
+    uint32_t debug_v0_1 = device.noc_read32(TENSIX_X, TENSIX_Y, 0x3004);
+    uint32_t debug_v1_0 = device.noc_read32(TENSIX_X, TENSIX_Y, 0x3008);
+    uint32_t debug_v1_1 = device.noc_read32(TENSIX_X, TENSIX_Y, 0x300C);
+
+    std::cout << "   Tensix saw: v0[0]=" << debug_v0_0 << " v0[1]=" << debug_v0_1
+              << " v1[0]=" << debug_v1_0 << " v1[1]=" << debug_v1_1 << "\n";
+    std::cout << "   Host sent: v0[0]=" << v0[0] << " v0[1]=" << v0[1]
+              << " v1[0]=" << v1[0] << " v1[1]=" << v1[1] << "\n";
+    std::cout << "   Result: sum[0]=" << sum[0] << " sum[1]=" << sum[1] << "\n";
+
     int errors = 0;
     for (size_t i = 0; i < NUM_ELEMENTS; i++) {
         uint32_t expected = (uint32_t)v0[i] + (uint32_t)v1[i];
         if (sum[i] != expected) {
             if (errors < 10) {
-                std::cout << "   ERROR at [" << i << "]: expected " << expected 
+                std::cout << "   ERROR at [" << i << "]: expected " << expected
                           << ", got " << sum[i] << "\n";
             }
             errors++;
@@ -138,9 +151,9 @@ int main(int argc, char *argv[])
 
     if (errors == 0) {
         std::cout << "   SUCCESS! All " << NUM_ELEMENTS << " results correct\n";
-        std::cout << "   Sample: sum[0] = " << sum[0] << " (v0[0]=" << v0[0] 
+        std::cout << "   Sample: sum[0] = " << sum[0] << " (v0[0]=" << v0[0]
                   << " + v1[0]=" << v1[0] << ")\n";
-        std::cout << "   Sample: sum[" << (NUM_ELEMENTS-1) << "] = " << sum[NUM_ELEMENTS-1] 
+        std::cout << "   Sample: sum[" << (NUM_ELEMENTS-1) << "] = " << sum[NUM_ELEMENTS-1]
                   << " (v0[" << (NUM_ELEMENTS-1) << "]=" << v0[NUM_ELEMENTS-1]
                   << " + v1[" << (NUM_ELEMENTS-1) << "]=" << v1[NUM_ELEMENTS-1] << ")\n";
     } else {
@@ -149,7 +162,7 @@ int main(int argc, char *argv[])
 
     // Reset Tensix
     device.noc_write32(TENSIX_X, TENSIX_Y, TENSIX_RESET_REG, TENSIX_IN_RESET);
-    
+
     std::cout << "\nDone.\n";
     return errors > 0 ? 1 : 0;
 }

@@ -1,14 +1,14 @@
 # Makefile for Tensix test programs
 
-# RISC-V toolchain
-CC := riscv32-unknown-elf-gcc
-LD := riscv32-unknown-elf-ld
-OBJCOPY := riscv32-unknown-elf-objcopy
-OBJDUMP := riscv32-unknown-elf-objdump
-SIZE := riscv32-unknown-elf-size
+# RISC-V toolchain (using riscv64 toolchain to generate 32-bit binaries)
+CC := riscv64-linux-gnu-gcc
+LD := riscv64-linux-gnu-ld
+OBJCOPY := riscv64-linux-gnu-objcopy
+OBJDUMP := riscv64-linux-gnu-objdump
+SIZE := riscv64-linux-gnu-size
 
 # All programs we build
-PROGRAMS := iter01 iter02 iter04
+PROGRAMS := iter01 iter02 iter04 iter05
 
 # All targets (ELF and BIN for each program)
 ALL_ELFS := $(addsuffix .elf,$(PROGRAMS))

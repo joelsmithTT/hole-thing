@@ -24,10 +24,12 @@ static constexpr uint64_t DST_BUF_ADDR_MID = 0x1010;
 static constexpr uint64_t DST_BUF_ADDR_HI  = 0x1014;
 static constexpr uint64_t TRANSFER_SIZE    = 0x1018;
 static constexpr uint64_t READY_ADDR       = 0x101C;
-static constexpr uint64_t DEBUG_SRC_LO     = 0x1020;
-static constexpr uint64_t DEBUG_SRC_MID    = 0x1024;
-static constexpr uint64_t DEBUG_DST_LO     = 0x1028;
-static constexpr uint64_t DEBUG_DST_MID    = 0x102C;
+static constexpr uint64_t DEBUG_SRC_LO      = 0x1020;
+static constexpr uint64_t DEBUG_SRC_MID     = 0x1024;
+static constexpr uint64_t DEBUG_DST_LO      = 0x1028;
+static constexpr uint64_t DEBUG_DST_MID     = 0x102C;
+static constexpr uint64_t DEBUG_NODE_ID     = 0x1030;
+static constexpr uint64_t DEBUG_LOCAL_COORD = 0x1034;
 
 // GDDR target
 static constexpr uint8_t GDDR_X = 17;
@@ -73,12 +75,16 @@ int main(int argc, char *argv[])
     std::cout << "1. Allocating source buffer...\n";
     DmaBuffer src_buffer(device, BUFFER_SIZE);
     uint64_t src_noc_addr = src_buffer.get_noc_addr();
+    uint64_t src_iova = src_buffer.get_iova();
     std::cout << "   NOC address: 0x" << std::hex << src_noc_addr << std::dec << "\n";
+    std::cout << "   IOVA: 0x" << std::hex << src_iova << std::dec << "\n";
 
     std::cout << "2. Allocating destination buffer...\n";
     DmaBuffer dst_buffer(device, BUFFER_SIZE);
     uint64_t dst_noc_addr = dst_buffer.get_noc_addr();
+    uint64_t dst_iova = dst_buffer.get_iova();
     std::cout << "   NOC address: 0x" << std::hex << dst_noc_addr << std::dec << "\n";
+    std::cout << "   IOVA: 0x" << std::hex << dst_iova << std::dec << "\n";
 
     auto [pcie_x, pcie_y] = device.get_pcie_coordinates();
 
@@ -110,6 +116,11 @@ int main(int argc, char *argv[])
     std::cout << "5. Writing parameters...\n";
     uint32_t pcie_coord = (pcie_y << 6) | pcie_x;
 
+    std::cout << "   Sending src to Tensix: lo=0x" << std::hex << (uint32_t)(src_noc_addr & 0xFFFFFFFF)
+              << " mid=0x" << (uint32_t)(src_noc_addr >> 32) << " hi=0x" << pcie_coord << std::dec << "\n";
+    std::cout << "   Sending dst to Tensix: lo=0x" << std::hex << (uint32_t)(dst_noc_addr & 0xFFFFFFFF)
+              << " mid=0x" << (uint32_t)(dst_noc_addr >> 32) << " hi=0x" << pcie_coord << std::dec << "\n";
+
     device.noc_write32(TENSIX_X, TENSIX_Y, SRC_BUF_ADDR_LO, (uint32_t)(src_noc_addr & 0xFFFFFFFF));
     device.noc_write32(TENSIX_X, TENSIX_Y, SRC_BUF_ADDR_MID, (uint32_t)(src_noc_addr >> 32));
     device.noc_write32(TENSIX_X, TENSIX_Y, SRC_BUF_ADDR_HI, pcie_coord);
@@ -123,6 +134,12 @@ int main(int argc, char *argv[])
 
     // Start
     std::cout << "6. Starting Tensix...\n";
+
+    uint32_t noc_cfg = device.noc_read32(TENSIX_X, TENSIX_Y, 0xFFB20100); // NIU_CFG_0
+    uint32_t noc_id_logical = device.noc_read32(TENSIX_X, TENSIX_Y, 0xFFB20148);
+    printf("NIU_CFG_0: 0x%x (coord translation bit 14: %d)\n", noc_cfg, (noc_cfg >> 14) & 1);
+    printf("NOC_ID_LOGICAL: 0x%x\n", noc_id_logical);
+
     device.noc_write32(TENSIX_X, TENSIX_Y, TENSIX_RESET_REG, TENSIX_OUT_RESET);
 
     // Poll with timeout
@@ -178,8 +195,13 @@ int main(int argc, char *argv[])
     uint32_t total_size_tensix = device.noc_read32(TENSIX_X, TENSIX_Y, DEBUG_SRC_LO);
     uint32_t chunks_phase1 = device.noc_read32(TENSIX_X, TENSIX_Y, DEBUG_SRC_MID);
     uint32_t chunks_phase2 = device.noc_read32(TENSIX_X, TENSIX_Y, DEBUG_DST_MID);
+    uint32_t node_id_tensix = device.noc_read32(TENSIX_X, TENSIX_Y, DEBUG_NODE_ID);
+    uint32_t local_coord_tensix = device.noc_read32(TENSIX_X, TENSIX_Y, DEBUG_LOCAL_COORD);
 
     std::cout << "   Tensix saw transfer_size: " << total_size_tensix << " bytes\n";
+    std::cout << "   Tensix node_id: 0x" << std::hex << node_id_tensix << std::dec 
+              << " (" << (node_id_tensix & 0x3F) << ", " << ((node_id_tensix >> 6) & 0x3F) << ")\n";
+    std::cout << "   Tensix local_coord: 0x" << std::hex << local_coord_tensix << std::dec << "\n";
     std::cout << "   Tensix did phase1 chunks: " << chunks_phase1 << "\n";
     std::cout << "   Tensix did phase2 chunks: " << chunks_phase2 << "\n";
 
@@ -193,21 +215,36 @@ int main(int argc, char *argv[])
     std::cout << "   Host sent  dst: 0x" << std::hex << dst_noc_addr << std::dec << "\n";
     std::cout << "   Tensix saw dst: 0x" << std::hex << tensix_saw_dst << std::dec << "\n";
 
-    if (dst_ptr[0] != 0) {
-        // Offset detected
+    if (dst_ptr[0] != 0 && dst_ptr[0] != 0xDEADBEEF) {
+        // Offset detected (only if not matching expected pattern)
         uint32_t offset = dst_ptr[0];
         std::cout << "   Offset detected: " << offset << " (0x" << std::hex << offset << std::dec << ")\n";
         std::cout << "   This is " << (offset * 4) << " bytes = " << (offset * 4 / 1024) << " KB\n";
-        std::cout << "   Checking src[" << offset << "] = " << src_ptr[offset] << "\n";
-
-        // Check if maybe the whole transfer is offset
-        if (src_ptr[offset] == offset) {
-            std::cout << "   Pattern matches at offset! NOC read started at wrong address\n";
+        
+        if (offset < num_words) {
+            std::cout << "   Checking src[" << offset << "] = " << src_ptr[offset] << "\n";
+            // Check if maybe the whole transfer is offset
+            if (src_ptr[offset] == offset) {
+                std::cout << "   Pattern matches at offset! NOC read started at wrong address\n";
+            }
+        } else {
+            std::cout << "   Offset " << offset << " is out of bounds (num_words=" << num_words << ")\n";
         }
     }
 
     int errors = 0;
-    for (size_t i = 0; i < num_words && errors < 10; i++) {
+    // Check first two words specially
+    if (dst_ptr[0] != 0xDEADBEEF) {
+        std::cout << "   ERROR at [0]: expected 0xDEADBEEF (3735928559), got " << dst_ptr[0] << "\n";
+        errors++;
+    }
+    if (dst_ptr[1] != 0xCAFEBABE) {
+        std::cout << "   ERROR at [1]: expected 0xCAFEBABE (3405691582), got " << dst_ptr[1] << "\n";
+        errors++;
+    }
+
+    // Check remaining words
+    for (size_t i = 2; i < num_words && errors < 10; i++) {
         if (dst_ptr[i] != (uint32_t)i) {
             std::cout << "   ERROR at [" << i << "]: expected " << (uint32_t)i
                       << ", got " << dst_ptr[i] << "\n";

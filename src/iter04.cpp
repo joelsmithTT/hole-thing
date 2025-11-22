@@ -60,8 +60,10 @@ int main(int argc, char *argv[])
     std::cout << "1. Allocating host DMA buffer (" << BUFFER_SIZE << " bytes)...\n";
     DmaBuffer buffer(device, BUFFER_SIZE);
     uint64_t noc_addr = buffer.get_noc_addr();
+    uint64_t iova = buffer.get_iova();
 
     std::cout << "   NOC address: 0x" << std::hex << noc_addr << std::dec << "\n";
+    std::cout << "   IOVA: 0x" << std::hex << iova << std::dec << "\n";
 
     // Get PCIe coordinates for the NOC address
     auto [pcie_x, pcie_y] = device.get_pcie_coordinates();
@@ -95,6 +97,9 @@ int main(int argc, char *argv[])
     uint32_t addr_lo = (uint32_t)(noc_addr & 0xFFFFFFFF);
     uint32_t addr_mid = (uint32_t)(noc_addr >> 32);
     uint32_t addr_hi = (pcie_y << 6) | pcie_x;
+
+    std::cout << "   Sending to Tensix: lo=0x" << std::hex << addr_lo 
+              << " mid=0x" << addr_mid << " hi=0x" << addr_hi << std::dec << "\n";
 
     device.noc_write32(TENSIX_X, TENSIX_Y, HOST_BUF_ADDR_LO, addr_lo);
     device.noc_write32(TENSIX_X, TENSIX_Y, HOST_BUF_ADDR_MID, addr_mid);

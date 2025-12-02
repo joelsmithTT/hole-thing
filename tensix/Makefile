@@ -8,7 +8,7 @@ OBJDUMP := riscv64-linux-gnu-objdump
 SIZE := riscv64-linux-gnu-size
 
 # All programs we build
-PROGRAMS := iter01 iter02 iter04 iter05
+PROGRAMS := iter01 iter02 iter04 iter05 iter06
 
 # All targets (ELF and BIN for each program)
 ALL_ELFS := $(addsuffix .elf,$(PROGRAMS))

@@ -38,7 +38,8 @@ TARGETS := \
 	$(BIN_DIR)/iter02 \
 	$(BIN_DIR)/iter03 \
 	$(BIN_DIR)/iter04 \
-	$(BIN_DIR)/iter05
+	$(BIN_DIR)/iter05 \
+	$(BIN_DIR)/iter06
 
 TOOLS_C_SOURCES := $(wildcard $(TOOLS_DIR)/*.c)
 TOOLS_C_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))

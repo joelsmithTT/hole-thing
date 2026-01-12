@@ -55,6 +55,7 @@ struct tenstorrent_get_device_info_out {
 	__u16 bus_dev_fn;	// [0:2] function, [3:7] device, [8:15] bus
 	__u16 max_dma_buf_size_log2;	// Since 1.0
 	__u16 pci_domain;		// Since 1.23
+	__u16 reserved;
 };
 
 struct tenstorrent_get_device_info {
@@ -205,18 +206,39 @@ struct tenstorrent_pin_pages {
 };
 
 // tenstorrent_lock_ctl_in.flags
-#define TENSTORRENT_LOCK_CTL_ACQUIRE 0
-#define TENSTORRENT_LOCK_CTL_RELEASE 1
-#define TENSTORRENT_LOCK_CTL_TEST 2
+#define TENSTORRENT_LOCK_CTL_ACQUIRE 0		// out.value: 1 = acquired, 0 = held by another
+#define TENSTORRENT_LOCK_CTL_RELEASE 1		// out.value: 1 = released, 0 = not held by us
+#define TENSTORRENT_LOCK_CTL_TEST 2		// out.value: bit 0 = held by us, bit 1 = held by any
+#define TENSTORRENT_LOCK_CTL_ACQUIRE_BLOCKING 3	// blocks until acquired, out.value: 1
+
+// Conventional lock indices for ERISC cores
+#define TENSTORRENT_LOCK_INDEX_ETH00 0
+#define TENSTORRENT_LOCK_INDEX_ETH01 1
+#define TENSTORRENT_LOCK_INDEX_ETH02 2
+#define TENSTORRENT_LOCK_INDEX_ETH03 3
+#define TENSTORRENT_LOCK_INDEX_ETH04 4
+#define TENSTORRENT_LOCK_INDEX_ETH05 5
+#define TENSTORRENT_LOCK_INDEX_ETH06 6
+#define TENSTORRENT_LOCK_INDEX_ETH07 7
+#define TENSTORRENT_LOCK_INDEX_ETH08 8
+#define TENSTORRENT_LOCK_INDEX_ETH09 9
+#define TENSTORRENT_LOCK_INDEX_ETH10 10
+#define TENSTORRENT_LOCK_INDEX_ETH11 11
+#define TENSTORRENT_LOCK_INDEX_ETH12 12
+#define TENSTORRENT_LOCK_INDEX_ETH13 13
+#define TENSTORRENT_LOCK_INDEX_ETH14 14
+#define TENSTORRENT_LOCK_INDEX_ETH15 15
 
 struct tenstorrent_lock_ctl_in {
 	__u32 output_size_bytes;
 	__u32 flags;
 	__u8  index;
+	__u8  reserved[3];
 };
 
 struct tenstorrent_lock_ctl_out {
 	__u8 value;
+	__u8 reserved[3];
 };
 
 struct tenstorrent_lock_ctl {
@@ -230,6 +252,7 @@ struct tenstorrent_map_peer_bar_in {
 	__u32 peer_bar_offset;
 	__u32 peer_bar_length;
 	__u32 flags;
+	__u32 reserved;
 };
 
 struct tenstorrent_map_peer_bar_out {
@@ -289,6 +312,7 @@ struct tenstorrent_noc_tlb_config {
 
 struct tenstorrent_configure_tlb_in {
 	__u32 id;
+	__u32 reserved;
 	struct tenstorrent_noc_tlb_config config;
 };
 
@@ -335,10 +359,8 @@ struct tenstorrent_set_noc_cleanup {
 /**
  * TENSTORRENT_IOCTL_SET_POWER_STATE - Set the power state of the device
  *
- * The driver tracks the requested power state for each open file descriptor.
- * On any state change (ioctl call or file descriptor close), the driver will
- * aggregate the states from all active file descriptors and send the
- * consolidated state to the firmware.
+ * The driver tracks the requested power state for each open file descriptor and
+ * sends aggregated updates to the firmware as needed.
  *
  * Aggregation logic:
  * - For the power flags bitfield: the final state will be a bitwise OR of all
@@ -346,13 +368,26 @@ struct tenstorrent_set_noc_cleanup {
  * - For the power settings array: the final value for each setting will be the
  *   maximum value requested across all clients.
  *
+ * Behavior at open():
+ * - With O_APPEND: Initial state is 0 (all off), no aggregation is triggered.
+ *   The client is expected to request power via SET_POWER_STATE.
+ * - Without O_APPEND (legacy): Initial state is high power, aggregation is
+ *   triggered immediately.
+ *
+ * Behavior at close():
+ * - If the power_policy module parameter is enabled (default), the client's
+ *   contribution is removed and the aggregated state is recomputed. When the
+ *   last client closes, the device will return to low power.
+ * - If power_policy is disabled, no aggregation is triggered on close.
+ *
  * @argsz: Must be sizeof(struct tenstorrent_power_state).
  * @flags: Reserved for future use, must be 0.
  * @reserved0: Must be 0.
- * @validity: Defines which flags in power_flags and which entries in power_settings
- *            are valid. This is a bitfield where bits 0-3 specify the number
- *            of valid flags (0-15), and bits 4-7 specify the number of valid
- *            settings (0-14). Use TT_POWER_VALIDITY() to construct this value.
+ * @validity: Defines which flags in power_flags and which entries in
+ *            power_settings are valid. This is a bitfield where bits 0-3
+ *            specify the number of valid flags (0-15), and bits 4-7 specify the
+ *            number of valid settings (0-14). Use TT_POWER_VALIDITY() to
+ *            construct this value.
  * @power_flags: Bitmask for on/off power features. Use TT_POWER_FLAG_* defines.
  * @power_settings: Array for numeric power settings.
  */
@@ -363,10 +398,13 @@ struct tenstorrent_power_state {
 	__u8 validity;
 #define TT_POWER_VALIDITY_FLAGS(n)      (((n) & 0xF) << 0)
 #define TT_POWER_VALIDITY_SETTINGS(n)   (((n) & 0xF) << 4)
-#define TT_POWER_VALIDITY(flags, settings) (TT_POWER_VALIDITY_FLAGS(flags) | TT_POWER_VALIDITY_SETTINGS(settings))
+#define TT_POWER_VALIDITY(flags_count, settings_count) \
+	(TT_POWER_VALIDITY_FLAGS(flags_count) | TT_POWER_VALIDITY_SETTINGS(settings_count))
 	__u16 power_flags;
-#define TT_POWER_FLAG_MAX_AI_CLK        (1U << 0) /* 1=Max AI Clock, 0=Min AI Clock */
-#define TT_POWER_FLAG_MRISC_PHY_WAKEUP  (1U << 1) /* 1=PHY Wakeup,   0=PHY Powerdown */
+#define TT_POWER_FLAG_MAX_AI_CLK        (1U << 0) /* 1=Max AI Clock,  0=Min AI Clock */
+#define TT_POWER_FLAG_MRISC_PHY_WAKEUP  (1U << 1) /* 1=PHY Wakeup,    0=PHY Powerdown */
+#define TT_POWER_FLAG_TENSIX_ENABLE     (1U << 2) /* 1=Enable Tensix, 0=Clock Gate Tensix */
+#define TT_POWER_FLAG_L2CPU_ENABLE      (1U << 3) /* 1=Enable L2CPU,  0=Clock Gate L2CPU */
 	__u16 power_settings[14];
 };
 

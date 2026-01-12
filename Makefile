@@ -24,7 +24,7 @@ IOCTL_H_SRC   := $(SRC_DIR)/ioctl.h
 # --- Compiler and Linker Flags ---
 CXXFLAGS := -I./include -I$(SRC_DIR) -Wall -Wextra -std=c++17 -g
 CFLAGS   := -I./include -I$(SRC_DIR) -Wall -Wextra -g
-LDFLAGS  := -L$(LIB_DIR) -lttkmd
+LDFLAGS  := -L$(LIB_DIR) -lttkmd -pthread
 
 # --- Targets ---
 # Tools from 'src' that depend on libttkmd.a
@@ -39,7 +39,9 @@ TARGETS := \
 	$(BIN_DIR)/iter03 \
 	$(BIN_DIR)/iter04 \
 	$(BIN_DIR)/iter05 \
-	$(BIN_DIR)/iter06
+	$(BIN_DIR)/iter06 \
+	$(BIN_DIR)/x280_hello \
+	$(BIN_DIR)/dram_benchmark
 
 TOOLS_C_SOURCES := $(wildcard $(TOOLS_DIR)/*.c)
 TOOLS_C_TARGETS := $(patsubst $(TOOLS_DIR)/%.c,$(BIN_DIR)/%,$(TOOLS_C_SOURCES))
@@ -51,7 +53,7 @@ TOOLS_CXX_TARGETS := $(patsubst $(TOOLS_DIR)/%.cpp,$(BIN_DIR)/%,$(TOOLS_CXX_SOUR
 HEADERS := $(wildcard include/*.hpp)
 
 # The default 'all' target now builds both the main tools and the standalone tools
-all: tensix $(TARGETS) $(TOOLS_C_TARGETS) $(TOOLS_CXX_TARGETS)
+all: tensix x280 $(TARGETS) $(TOOLS_C_TARGETS) $(TOOLS_CXX_TARGETS)
 
 # --- Build Rules for Main Executables (from src/) ---
 
@@ -100,6 +102,11 @@ tensix:
 	@echo "Building Tensix firmware..."
 	@$(MAKE) -C tensix
 
+# Build X280 firmware
+x280:
+	@echo "Building X280 firmware..."
+	@$(MAKE) -C x280
+
 test: $(BIN_DIR)/test
 	@echo "--- Running tests on all devices ---"
 	./$(BIN_DIR)/test -1
@@ -113,6 +120,7 @@ clean:
 	@echo "Cleaning up generated files..."
 	rm -rf $(BIN_DIR) $(LIB_DIR) $(OBJ_DIR)
 	@$(MAKE) -C tensix clean
+	@$(MAKE) -C x280 clean
 
 # .PHONY declares targets that are not files, preventing conflicts
-.PHONY: all clean test telemetry tensix
+.PHONY: all clean test telemetry tensix x280
